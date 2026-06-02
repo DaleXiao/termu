@@ -1,0 +1,52 @@
+diff --git a/Sources/SwiftTerm/Terminal.swift b/Sources/SwiftTerm/Terminal.swift
+index e9ab45b..0d7bc2f 100644
+--- a/Sources/SwiftTerm/Terminal.swift
++++ b/Sources/SwiftTerm/Terminal.swift
+@@ -2296,14 +2296,20 @@ open class Terminal {
+     func cmdEraseInLine (_ pars: [Int], _ collect: cstring)
+     {
+         let p = pars.count == 0 ? 0 : pars [0]
++        let leftBound = marginMode ? buffer.marginLeft : 0
++        let rightBound = marginMode ? buffer.marginRight : cols - 1
++
++        if marginMode && (buffer.x < leftBound || buffer.x > rightBound) {
++            return
++        }
+         
+         switch p {
+         case 0:
+-            eraseInBufferLine (y: buffer.y, start: buffer.x, end: cols)
++            eraseInBufferLine (y: buffer.y, start: buffer.x, end: rightBound + 1)
+         case 1:
+-            eraseInBufferLine (y: buffer.y, start: 0, end: buffer.x + 1)
++            eraseInBufferLine (y: buffer.y, start: leftBound, end: buffer.x + 1)
+         case 2:
+-            eraseInBufferLine (y: buffer.y, start: 0, end: cols)
++            eraseInBufferLine (y: buffer.y, start: leftBound, end: rightBound + 1)
+         default:
+             break
+         }
+@@ -4624,12 +4630,22 @@ open class Terminal {
+     //
+     func cmdEraseChars (_ pars: [Int], _ collect: cstring)
+     {
+-        let p = max (pars.count == 0 ? 1 : pars [0], 1)
++        var p = max (pars.count == 0 ? 1 : pars [0], 1)
++
++        if marginMode {
++            if buffer.x < buffer.marginLeft || buffer.x > buffer.marginRight {
++                return
++            }
++            if buffer.x + p > buffer.marginRight {
++                p = buffer.marginRight - buffer.x + 1
++            }
++        }
+ 
+         buffer.lines [buffer.y + buffer.yBase].replaceCells (
+             start: buffer.x,
+             end: buffer.x + p,
+             fillData: CharData (attribute:  eraseAttr ()))
++        updateRange (buffer.y)
+     }
+ 
+     func csiT (_ pars: [Int], _ collect: cstring)

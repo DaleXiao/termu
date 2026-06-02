@@ -1,0 +1,120 @@
+diff --git a/Sources/SwiftTerm/Terminal.swift b/Sources/SwiftTerm/Terminal.swift
+index 0d7bc2f..ed08c28 100644
+--- a/Sources/SwiftTerm/Terminal.swift
++++ b/Sources/SwiftTerm/Terminal.swift
+@@ -1439,6 +1439,19 @@ open class Terminal {
+         buffer.insertCharacter(
+             charData)
+     }
++
++    func clampPendingWrapColumn()
++    {
++        let right = marginMode ? buffer.marginRight : cols - 1
++        if buffer.x == right + 1 {
++            buffer.x = right
++        }
++    }
++
++    func canScrollAtCursorColumn() -> Bool
++    {
++        let right = marginMode ? buffer.marginRight : cols - 1
++        return buffer.x >= buffer.marginLeft && buffer.x <= right + 1
++    }
+     
+ //    func insertCharacter2(_ charData: CharData) {
+ //        let buffer = self.buffer
+@@ -1513,7 +1526,7 @@ open class Terminal {
+         let buffer = self.buffer
+         let by = buffer.y
+         
+-        let canScroll = buffer.x >= buffer.marginLeft && buffer.x <= buffer.marginRight
++        let canScroll = canScrollAtCursorColumn()
+         
+         if by == buffer.scrollBottom {
+             if canScroll {
+@@ -1527,9 +1540,7 @@ open class Terminal {
+         }
+         
+         // If the end of the line is hit, prevent this action from wrapping around to the next line.
+-        if buffer.x >= cols {
+-            buffer.x -= 1
+-        }
++        clampPendingWrapColumn()
+         
+         // This event is emitted whenever the terminal outputs a LF or NL.
+         emitLineFeed()
+@@ -2070,6 +2081,7 @@ open class Terminal {
+         } else {
+             buffer.y -= param
+         }
++        clampPendingWrapColumn()
+     }
+     
+     //
+@@ -2095,9 +2107,7 @@ open class Terminal {
+                 buffer.y = newY
+         }
+         // If the end of the line is hit, prevent this action from wrapping around to the next line.
+-        if buffer.x >= cols {
+-                buffer.x -= 1
+-        }
++        clampPendingWrapColumn()
+     }
+     
+     //
+@@ -4433,9 +4443,7 @@ open class Terminal {
+         }
+ 
+         // If the end of the line is hit, prevent this action from wrapping around to the next line.
+-        if buffer.x >= cols {
+-            buffer.x -= 1
+-        }
++        clampPendingWrapColumn()
+     }
+ 
+ 
+@@ -4452,6 +4460,7 @@ open class Terminal {
+         } else {
+             buffer.y = p - 1
+         }
++        clampPendingWrapColumn()
+     }
+ 
+     //
+@@ -5164,7 +5173,7 @@ open class Terminal {
+         let newY = buffer.y + 1
+ 
+         // When left/right margins are active, only scroll if cursor is within margins
+-        let canScroll = buffer.x >= buffer.marginLeft && buffer.x <= buffer.marginRight
++        let canScroll = canScrollAtCursorColumn()
+ 
+         if newY > buffer.scrollBottom {
+             if canScroll {
+@@ -5175,9 +5184,7 @@ open class Terminal {
+             buffer.y = newY
+         }
+         // If the end of the line is hit, prevent this action from wrapping around to the next line
+-        if buffer.x > cols {
+-            buffer.x -= 1
+-        }
++        clampPendingWrapColumn()
+     }
+     
+     var blankLine: BufferLine = BufferLine(cols: 0)
+@@ -5722,7 +5729,7 @@ open class Terminal {
+         restrictCursor()
+ 
+         // When left/right margins are active, only scroll if cursor is within margins
+-        let canScroll = buffer.x >= buffer.marginLeft && buffer.x <= buffer.marginRight
++        let canScroll = canScrollAtCursorColumn()
+ 
+         if buffer.y == buffer.scrollTop {
+             if canScroll {
+@@ -5779,6 +5786,7 @@ open class Terminal {
+         } else if buffer.y > 0 {
+             buffer.y -= 1
+         }
++        clampPendingWrapColumn()
+     }
+     
+     /**

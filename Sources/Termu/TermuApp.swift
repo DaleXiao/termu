@@ -1,0 +1,52 @@
+import AppKit
+import SwiftUI
+
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {
+        false
+    }
+
+    func application(_ app: NSApplication, shouldSaveApplicationState coder: NSCoder) -> Bool {
+        false
+    }
+
+    func application(_ app: NSApplication, shouldRestoreApplicationState coder: NSCoder) -> Bool {
+        false
+    }
+}
+
+@main
+struct TermuApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+    @StateObject private var store = ConfigurationStore()
+
+    var body: some Scene {
+        WindowGroup("Termu") {
+            ContentView()
+                .environmentObject(store)
+                .frame(minWidth: 1040, minHeight: 680)
+        }
+        .commands {
+            CommandGroup(replacing: .newItem) {
+                Button("New Host") {
+                    store.addHost()
+                }
+                .keyboardShortcut("n", modifiers: [.command])
+            }
+
+            CommandMenu("Host") {
+                Button("Open in Terminal") {
+                    store.connectSelectedHostInTerminal()
+                }
+                .keyboardShortcut("k", modifiers: [.command])
+                .disabled(store.selectedHost == nil)
+
+                Button("Delete Host") {
+                    store.deleteSelectedHost()
+                }
+                .keyboardShortcut(.delete, modifiers: [.command])
+                .disabled(store.selectedHost == nil)
+            }
+        }
+    }
+}

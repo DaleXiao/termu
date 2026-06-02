@@ -1,0 +1,13 @@
+diff --git a/Sources/SwiftTerm/Mac/MacTerminalView.swift b/Sources/SwiftTerm/Mac/MacTerminalView.swift
+index 2ce2504..3667f7d 100644
+--- a/Sources/SwiftTerm/Mac/MacTerminalView.swift
++++ b/Sources/SwiftTerm/Mac/MacTerminalView.swift
+@@ -659,6 +659,8 @@ open class TerminalView: NSView, NSTextInputClient, NSUserInterfaceValidations,
+         guard let currentContext = getCurrentGraphicsContext() else {
+             return
+         }
++        nativeBackgroundColor.setFill()
++        dirtyRect.fill()
+         drawTerminalContents (dirtyRect: dirtyRect, context: currentContext, bufferOffset: terminal.displayBuffer.yDisp)
+     }
+     

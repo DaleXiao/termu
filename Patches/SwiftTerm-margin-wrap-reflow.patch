@@ -1,0 +1,48 @@
+diff --git a/Sources/SwiftTerm/Buffer.swift b/Sources/SwiftTerm/Buffer.swift
+index 8658be2..e7e7857 100644
+--- a/Sources/SwiftTerm/Buffer.swift
++++ b/Sources/SwiftTerm/Buffer.swift
+@@ -1132,6 +1132,7 @@ public final class Buffer {
+     func insertAsciiRun(_ bytes: ArraySlice<UInt8>, attribute: Attribute) -> Int {
+         guard !insertMode else { return 0 }
+         let right = marginMode ? _marginRight : _cols - 1
++        let canTrackLineWrap = !marginMode || (_marginLeft == 0 && _marginRight == _cols - 1)
+         var consumed = 0
+         var idx = bytes.startIndex
+ 
+@@ -1140,10 +1141,10 @@ public final class Buffer {
+                 guard wraparound else { break }
+                 _x = marginMode ? _marginLeft : 0
+                 if _y >= _scrollBottom {
+-                    scroll(true)
++                    scroll(canTrackLineWrap)
+                 } else {
+                     _y += 1
+-                    _lines[_y].isWrapped = true
++                    _lines[_y].isWrapped = canTrackLineWrap
+                 }
+             }
+             let available = right - _x + 1
+@@ -1166,6 +1167,7 @@ public final class Buffer {
+         var chWidth = Int (charData.width)
+         
+         let right = marginMode ? _marginRight : _cols - 1
++        let canTrackLineWrap = !marginMode || (_marginLeft == 0 && _marginRight == _cols - 1)
+         // goto next line if ch would overflow
+         // TODO: needs a global min terminal width of 2
+         // FIXME: additionally ensure chWidth fits into a line
+@@ -1178,12 +1180,12 @@ public final class Buffer {
+                 _x = marginMode ? _marginLeft : 0
+                 
+                 if _y >= _scrollBottom {
+-                    scroll (true)
++                    scroll (canTrackLineWrap)
+                 } else {
+                     // The line already exists (eg. the initial viewport), mark it as a
+                     // wrapped line
+                     _y += 1
+-                    _lines [_y].isWrapped = true
++                    _lines [_y].isWrapped = canTrackLineWrap
+                 }
+                 // row changed, get it again
+             } else {
