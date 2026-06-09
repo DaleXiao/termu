@@ -20,6 +20,7 @@ SWIFTTERM_MOUSE_WHEEL_PATCH="$ROOT/Patches/SwiftTerm-mouse-wheel-reporting.patch
 SWIFTTERM_MARGIN_WRAP_PATCH="$ROOT/Patches/SwiftTerm-margin-wrap-reflow.patch"
 SWIFTTERM_PENDING_WRAP_PATCH="$ROOT/Patches/SwiftTerm-pending-wrap-vertical.patch"
 SWIFTTERM_CLEAR_WRAPPED_EL_PATCH="$ROOT/Patches/SwiftTerm-clear-wrapped-el.patch"
+SWIFTTERM_CLEAR_WRAPPED_ED_PATCH="$ROOT/Patches/SwiftTerm-clear-wrapped-ed.patch"
 SWIFTTERM_DISABLE_REFLOW_PATCH="$ROOT/Patches/SwiftTerm-disable-resize-reflow.patch"
 
 if [[ -f "$SWIFTTERM_MAC_VIEW" ]] && ! grep -q "nativeBackgroundColor.setFill()" "$SWIFTTERM_MAC_VIEW"; then
@@ -50,6 +51,11 @@ fi
 if [[ -f "$SWIFTTERM_TERMINAL" ]] && ! grep -q "clearWrap: buffer.x == leftBound" "$SWIFTTERM_TERMINAL"; then
     chmod u+w "$SWIFTTERM_TERMINAL"
     patch -d "$SWIFTTERM_ROOT" -p1 < "$SWIFTTERM_CLEAR_WRAPPED_EL_PATCH"
+fi
+
+if [[ -f "$SWIFTTERM_TERMINAL" ]] && ! grep -q "displayLeftBound" "$SWIFTTERM_TERMINAL"; then
+    chmod u+w "$SWIFTTERM_TERMINAL"
+    patch -d "$SWIFTTERM_ROOT" -p1 < "$SWIFTTERM_CLEAR_WRAPPED_ED_PATCH"
 fi
 
 if [[ -f "$SWIFTTERM_BUFFER" ]] && ! grep -q "termu disables resize reflow" "$SWIFTTERM_BUFFER"; then

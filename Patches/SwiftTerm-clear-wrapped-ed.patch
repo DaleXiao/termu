@@ -1,0 +1,20 @@
+diff --git a/Sources/SwiftTerm/Terminal.swift b/Sources/SwiftTerm/Terminal.swift
+index 9cf3e11..b3e9f2c 100644
+--- a/Sources/SwiftTerm/Terminal.swift
++++ b/Sources/SwiftTerm/Terminal.swift
+@@ -2334,12 +2334,14 @@ open class Terminal {
+     func cmdEraseInDisplay (_ pars: [Int], _ collect: cstring)
+     {
+         let p = pars.count == 0 ? 0 : pars [0]
++        clampPendingWrapColumn()
++        let displayLeftBound = marginMode ? buffer.marginLeft : 0
+         var j: Int
+         switch p {
+         case 0:
+             j = buffer.y
+             updateRange (j)
+-            eraseInBufferLine (y: j, start: buffer.x, end: cols, clearWrap: buffer.x == 0)
++            eraseInBufferLine (y: j, start: buffer.x, end: cols, clearWrap: buffer.x == displayLeftBound)
+             j += 1
+             while j < rows {
+                 resetBufferLine (y: j)
