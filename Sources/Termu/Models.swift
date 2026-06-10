@@ -177,6 +177,7 @@ struct HostRecord: Identifiable, Codable, Equatable, Hashable {
     var sshCommand: String {
         var parts = ["ssh"]
         parts.append(contentsOf: sshHostKeyOptionsForCommand)
+        parts.append("-tt")
 
         if port != 22 {
             parts.append("-p")
@@ -194,6 +195,7 @@ struct HostRecord: Identifiable, Codable, Equatable, Hashable {
             : "\(username)@\(hostname)"
 
         parts.append(destination.shellQuoted)
+        parts.append(Self.remoteLoginShellCommand.shellQuoted)
         return parts.joined(separator: " ")
     }
 
@@ -204,6 +206,7 @@ struct HostRecord: Identifiable, Codable, Equatable, Hashable {
     func sshArguments(automatingSavedPassword: Bool) -> [String] {
         var arguments = sshHostKeyOptions
         let trimmedIdentity = identityFile.trimmingCharacters(in: .whitespacesAndNewlines)
+        arguments.append("-tt")
 
         if automatingSavedPassword {
             arguments.append(contentsOf: [
@@ -241,8 +244,11 @@ struct HostRecord: Identifiable, Codable, Equatable, Hashable {
             : "\(username)@\(hostname)"
 
         arguments.append(destination)
+        arguments.append(Self.remoteLoginShellCommand)
         return arguments
     }
+
+    private static let remoteLoginShellCommand = "/bin/sh -lc 'exec env PROMPT_EOL_MARK= \"${SHELL:-/bin/sh}\" -l'"
 
     private var sshHostKeyOptions: [String] {
         ["-o", "StrictHostKeyChecking=accept-new"]
