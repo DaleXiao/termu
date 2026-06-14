@@ -219,7 +219,7 @@ struct TerminalTextView: NSViewRepresentable {
             }
 
             if shouldApplyTheme {
-                apply(theme, to: terminalView)
+                apply(theme, colorScheme: colorScheme, to: terminalView)
                 appliedTheme = theme
                 appliedColorScheme = colorScheme
             }
@@ -382,12 +382,13 @@ struct TerminalTextView: NSViewRepresentable {
             terminalView.caretViewTracksFocus = true
         }
 
-        private func apply(_ theme: TerminalTheme, to terminalView: TerminalView) {
-            terminalView.layer?.backgroundColor = theme.terminalBackgroundColor.cgColor
-            terminalView.nativeBackgroundColor = theme.terminalBackgroundColor
-            terminalView.nativeForegroundColor = theme.terminalForegroundColor
-            terminalView.caretColor = theme.terminalCaretColor
-            terminalView.selectedTextBackgroundColor = theme.terminalSelectedTextBackgroundColor
+        private func apply(_ theme: TerminalTheme, colorScheme: ColorScheme, to terminalView: TerminalView) {
+            let backgroundColor = theme.terminalBackgroundColor(colorScheme: colorScheme)
+            terminalView.layer?.backgroundColor = backgroundColor.cgColor
+            terminalView.nativeBackgroundColor = backgroundColor
+            terminalView.nativeForegroundColor = theme.terminalForegroundColor(colorScheme: colorScheme)
+            terminalView.caretColor = theme.terminalCaretColor(colorScheme: colorScheme)
+            terminalView.selectedTextBackgroundColor = theme.terminalSelectedTextBackgroundColor(colorScheme: colorScheme)
             redrawFullTerminal(terminalView)
         }
 

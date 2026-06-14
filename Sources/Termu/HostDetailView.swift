@@ -25,6 +25,7 @@ struct HostDetailView: View {
 }
 
 private struct SessionView: View {
+    @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject private var store: ConfigurationStore
     @Binding var host: HostRecord
     @ObservedObject var session: PTYSession
@@ -93,7 +94,7 @@ private struct SessionView: View {
     private var terminalPanel: some View {
         if session.isRunning {
             ZStack(alignment: .topLeading) {
-                store.configuration.terminalTheme.terminalBackgroundSwiftUIColor
+                store.configuration.terminalTheme.terminalBackgroundSwiftUIColor(colorScheme: colorScheme)
 
                 TerminalTextView(
                     session: session,
@@ -175,6 +176,7 @@ private struct SessionView: View {
 }
 
 private struct LocalTerminalWorkspaceView: View {
+    @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject private var store: ConfigurationStore
     @Binding var host: HostRecord
     @ObservedObject var workspaces: LocalTerminalWorkspaceStore
@@ -393,7 +395,7 @@ private struct LocalTerminalWorkspaceView: View {
     @ViewBuilder
     private var terminalPanel: some View {
         ZStack(alignment: .topLeading) {
-            store.configuration.terminalTheme.terminalBackgroundSwiftUIColor
+            store.configuration.terminalTheme.terminalBackgroundSwiftUIColor(colorScheme: colorScheme)
 
             ForEach(tabs) { tab in
                 if tab.session.isRunning {

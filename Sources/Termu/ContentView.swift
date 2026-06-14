@@ -23,9 +23,10 @@ struct ContentView: View {
     @State private var filter: HostFilter = .all
     @State private var searchText = ""
     @State private var editingHostID: HostRecord.ID?
+    @State private var columnVisibility: NavigationSplitViewVisibility = .all
 
     var body: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
             HostSidebarView(
                 filter: $filter,
                 searchText: $searchText,
@@ -50,6 +51,10 @@ struct ContentView: View {
             if editingHostID != store.selectedHostID {
                 editingHostID = nil
             }
+        }
+        .onChange(of: columnVisibility) { _, visibility in
+            guard visibility != .all else { return }
+            columnVisibility = .all
         }
     }
 

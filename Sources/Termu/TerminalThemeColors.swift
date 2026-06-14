@@ -4,23 +4,47 @@ import SwiftUI
 @MainActor
 extension TerminalTheme {
     var terminalBackgroundColor: NSColor {
-        usesDarkAppearance ? .black : NSColor(calibratedWhite: 0.98, alpha: 1)
+        terminalBackgroundColor(colorScheme: currentColorScheme)
     }
 
     var terminalForegroundColor: NSColor {
-        usesDarkAppearance ? NSColor(calibratedWhite: 0.92, alpha: 1) : NSColor(calibratedWhite: 0.08, alpha: 1)
+        terminalForegroundColor(colorScheme: currentColorScheme)
     }
 
     var terminalCaretColor: NSColor {
-        usesDarkAppearance ? .systemGreen : .systemBlue
+        terminalCaretColor(colorScheme: currentColorScheme)
     }
 
     var terminalSelectedTextBackgroundColor: NSColor {
-        usesDarkAppearance ? NSColor(calibratedWhite: 0.22, alpha: 1) : NSColor(calibratedWhite: 0.80, alpha: 1)
+        terminalSelectedTextBackgroundColor(colorScheme: currentColorScheme)
     }
 
     var terminalBackgroundSwiftUIColor: Color {
         Color(nsColor: terminalBackgroundColor)
+    }
+
+    func terminalBackgroundColor(colorScheme: ColorScheme) -> NSColor {
+        usesDarkAppearance(colorScheme: colorScheme) ? .black : NSColor(calibratedWhite: 0.98, alpha: 1)
+    }
+
+    func terminalForegroundColor(colorScheme: ColorScheme) -> NSColor {
+        usesDarkAppearance(colorScheme: colorScheme)
+            ? NSColor(calibratedWhite: 0.92, alpha: 1)
+            : NSColor(calibratedWhite: 0.08, alpha: 1)
+    }
+
+    func terminalCaretColor(colorScheme: ColorScheme) -> NSColor {
+        usesDarkAppearance(colorScheme: colorScheme) ? .systemGreen : .systemBlue
+    }
+
+    func terminalSelectedTextBackgroundColor(colorScheme: ColorScheme) -> NSColor {
+        usesDarkAppearance(colorScheme: colorScheme)
+            ? NSColor(calibratedWhite: 0.22, alpha: 1)
+            : NSColor(calibratedWhite: 0.80, alpha: 1)
+    }
+
+    func terminalBackgroundSwiftUIColor(colorScheme: ColorScheme) -> Color {
+        Color(nsColor: terminalBackgroundColor(colorScheme: colorScheme))
     }
 
     var preferredColorScheme: ColorScheme? {
@@ -34,14 +58,18 @@ extension TerminalTheme {
         }
     }
 
-    private var usesDarkAppearance: Bool {
+    private func usesDarkAppearance(colorScheme: ColorScheme) -> Bool {
         switch self {
         case .dark:
             return true
         case .light:
             return false
         case .system:
-            return NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            return colorScheme == .dark
         }
+    }
+
+    private var currentColorScheme: ColorScheme {
+        NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? .dark : .light
     }
 }
