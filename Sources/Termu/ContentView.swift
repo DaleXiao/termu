@@ -24,6 +24,7 @@ struct ContentView: View {
     @State private var searchText = ""
     @State private var editingHostID: HostRecord.ID?
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    @State private var lastSidebarDividerDragAt = Date.distantPast
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
@@ -37,6 +38,11 @@ struct ContentView: View {
                 delete: delete
             )
             .navigationSplitViewColumnWidth(min: 260, ideal: 320, max: 420)
+            .background(
+                SidebarSplitViewWidthLimiter(minWidth: 260, maxWidth: 420) {
+                    lastSidebarDividerDragAt = Date()
+                }
+            )
         } detail: {
             DetailView(
                 sshSessions: sshSessions,
@@ -54,7 +60,11 @@ struct ContentView: View {
         }
         .onChange(of: columnVisibility) { _, visibility in
             guard visibility != .all else { return }
-            columnVisibility = .all
+            guard Date().timeIntervalSince(lastSidebarDividerDragAt) < 0.5 else { return }
+
+            DispatchQueue.main.async {
+                columnVisibility = .all
+            }
         }
     }
 
