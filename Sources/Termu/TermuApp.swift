@@ -24,6 +24,7 @@ struct TermuApp: App {
         WindowGroup("Termu") {
             ContentView()
                 .environmentObject(store)
+                .preferredColorScheme(store.configuration.terminalTheme.preferredColorScheme)
                 .frame(minWidth: 1040, minHeight: 680)
         }
         .commands {

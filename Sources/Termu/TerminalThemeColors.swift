@@ -23,6 +23,17 @@ extension TerminalTheme {
         Color(nsColor: terminalBackgroundColor)
     }
 
+    var preferredColorScheme: ColorScheme? {
+        switch self {
+        case .dark:
+            return .dark
+        case .light:
+            return .light
+        case .system:
+            return nil
+        }
+    }
+
     private var usesDarkAppearance: Bool {
         switch self {
         case .dark:

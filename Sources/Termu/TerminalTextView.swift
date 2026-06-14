@@ -388,7 +388,7 @@ struct TerminalTextView: NSViewRepresentable {
             terminalView.nativeForegroundColor = theme.terminalForegroundColor
             terminalView.caretColor = theme.terminalCaretColor
             terminalView.selectedTextBackgroundColor = theme.terminalSelectedTextBackgroundColor
-            terminalView.needsDisplay = true
+            redrawFullTerminal(terminalView)
         }
 
         private func redrawFullTerminal(_ terminalView: TerminalView) {
