@@ -19,12 +19,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 struct TermuApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var store = ConfigurationStore()
+    @State private var systemColorScheme = SystemAppearance.colorScheme
 
     var body: some Scene {
         WindowGroup("Termu") {
             ContentView()
                 .environmentObject(store)
-                .preferredColorScheme(store.configuration.terminalTheme.preferredColorScheme)
+                .preferredColorScheme(
+                    store.configuration.terminalTheme.preferredColorScheme(
+                        systemColorScheme: systemColorScheme
+                    )
+                )
+                .onReceive(DistributedNotificationCenter.default().publisher(for: SystemAppearance.changedNotification)) { _ in
+                    systemColorScheme = SystemAppearance.colorScheme
+                }
                 .frame(minWidth: 1040, minHeight: 680)
         }
         .commands {

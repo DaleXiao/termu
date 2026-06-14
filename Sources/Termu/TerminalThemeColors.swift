@@ -2,6 +2,15 @@ import AppKit
 import SwiftUI
 
 @MainActor
+enum SystemAppearance {
+    static let changedNotification = Notification.Name("AppleInterfaceThemeChangedNotification")
+
+    static var colorScheme: ColorScheme {
+        UserDefaults.standard.string(forKey: "AppleInterfaceStyle") == "Dark" ? .dark : .light
+    }
+}
+
+@MainActor
 extension TerminalTheme {
     var terminalBackgroundColor: NSColor {
         terminalBackgroundColor(colorScheme: currentColorScheme)
@@ -47,14 +56,18 @@ extension TerminalTheme {
         Color(nsColor: terminalBackgroundColor(colorScheme: colorScheme))
     }
 
-    var preferredColorScheme: ColorScheme? {
+    func terminalForegroundSwiftUIColor(colorScheme: ColorScheme) -> Color {
+        Color(nsColor: terminalForegroundColor(colorScheme: colorScheme))
+    }
+
+    func preferredColorScheme(systemColorScheme: ColorScheme) -> ColorScheme {
         switch self {
         case .dark:
             return .dark
         case .light:
             return .light
         case .system:
-            return nil
+            return systemColorScheme
         }
     }
 
@@ -70,6 +83,6 @@ extension TerminalTheme {
     }
 
     private var currentColorScheme: ColorScheme {
-        NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? .dark : .light
+        SystemAppearance.colorScheme
     }
 }

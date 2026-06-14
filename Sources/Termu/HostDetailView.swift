@@ -626,10 +626,13 @@ private struct LocalTerminalTabButton: View {
 }
 
 private struct TerminalTabIdleView: View {
+    @Environment(\.colorScheme) private var colorScheme
+    @EnvironmentObject private var store: ConfigurationStore
+
     var body: some View {
         ZStack {
             Rectangle()
-                .fill(.regularMaterial)
+                .fill(store.configuration.terminalTheme.terminalBackgroundSwiftUIColor(colorScheme: colorScheme))
 
             VStack(spacing: 12) {
                 Image(systemName: "terminal")
@@ -638,16 +641,19 @@ private struct TerminalTabIdleView: View {
                 Text("Click Start to open this tab")
                     .font(.body)
             }
-            .foregroundStyle(.secondary)
+            .foregroundStyle(store.configuration.terminalTheme.terminalForegroundSwiftUIColor(colorScheme: colorScheme).opacity(0.65))
         }
     }
 }
 
 struct WorkspaceIdleView: View {
+    @Environment(\.colorScheme) private var colorScheme
+    @EnvironmentObject private var store: ConfigurationStore
+
     var body: some View {
         ZStack {
             Rectangle()
-                .fill(.regularMaterial)
+                .fill(store.configuration.terminalTheme.terminalBackgroundSwiftUIColor(colorScheme: colorScheme))
 
             VStack(spacing: 12) {
                 Image(systemName: "terminal")
@@ -663,7 +669,7 @@ struct WorkspaceIdleView: View {
                 }
                 .font(.callout)
             }
-            .foregroundStyle(.secondary)
+            .foregroundStyle(store.configuration.terminalTheme.terminalForegroundSwiftUIColor(colorScheme: colorScheme).opacity(0.65))
         }
     }
 }
