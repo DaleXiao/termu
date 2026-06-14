@@ -21,16 +21,60 @@ final class LocalTerminalWorkspaceStore: ObservableObject {
         var tabs: [LocalTerminalTab]
     }
 
+    private struct PersistedState: Codable {
+        var schemaVersion: Int = 1
+        var workspaces: [PersistedWorkspace] = []
+    }
+
+    private struct PersistedWorkspace: Codable {
+        var hostID: HostRecord.ID
+        var selectedTabID: LocalTerminalTab.ID
+        var tabs: [PersistedTab]
+    }
+
+    private struct PersistedTab: Codable {
+        var id: LocalTerminalTab.ID
+        var title: String
+    }
+
     @Published private var workspaces: [HostRecord.ID: Workspace] = [:]
 
+    private let localURL: URL
+    private let encoder: JSONEncoder
+    private let decoder: JSONDecoder
+    private var persistedWorkspaces: [HostRecord.ID: PersistedWorkspace] = [:]
     private var sessionObservers: [LocalTerminalTab.ID: AnyCancellable] = [:]
+
+    init() {
+        let applicationSupport = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        )[0]
+        localURL = applicationSupport
+            .appendingPathComponent("termu", isDirectory: true)
+            .appendingPathComponent("local-workspaces.json")
+
+        encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+
+        decoder = JSONDecoder()
+        loadPersistedWorkspaces()
+    }
 
     func ensureWorkspace(for host: HostRecord) {
         guard host.kind == .local else { return }
         guard workspaces[host.id] == nil else { return }
 
+        if let persistedWorkspace = persistedWorkspaces[host.id],
+           let workspace = makeWorkspace(from: persistedWorkspace, host: host) {
+            workspaces[host.id] = workspace
+            return
+        }
+
         let tab = makeTab(title: "Shell 1", host: host)
-        workspaces[host.id] = Workspace(selectedTabID: tab.id, tabs: [tab])
+        let workspace = Workspace(selectedTabID: tab.id, tabs: [tab])
+        workspaces[host.id] = workspace
+        persist(workspace, for: host.id)
     }
 
     func tabs(for hostID: HostRecord.ID) -> [LocalTerminalTab] {
@@ -51,6 +95,7 @@ final class LocalTerminalWorkspaceStore: ObservableObject {
 
         workspace.selectedTabID = tabID
         workspaces[hostID] = workspace
+        persist(workspace, for: hostID)
     }
 
     func startSelectedTab(for host: HostRecord) {
@@ -80,6 +125,8 @@ final class LocalTerminalWorkspaceStore: ObservableObject {
         if start {
             tab.session.start(host: host)
         }
+
+        persist(workspace, for: host.id)
     }
 
     func closeTab(_ tabID: LocalTerminalTab.ID, for host: HostRecord) {
@@ -101,6 +148,7 @@ final class LocalTerminalWorkspaceStore: ObservableObject {
         }
 
         workspaces[host.id] = workspace
+        persist(workspace, for: host.id)
     }
 
     func renameTab(_ tabID: LocalTerminalTab.ID, for hostID: HostRecord.ID, title: String) {
@@ -114,6 +162,7 @@ final class LocalTerminalWorkspaceStore: ObservableObject {
 
         tab.title = trimmedTitle
         workspaces[hostID] = workspace
+        persist(workspace, for: hostID)
     }
 
     func moveTab(_ tabID: LocalTerminalTab.ID, to targetTabID: LocalTerminalTab.ID, for hostID: HostRecord.ID) {
@@ -130,6 +179,7 @@ final class LocalTerminalWorkspaceStore: ObservableObject {
         let tab = workspace.tabs.remove(at: sourceIndex)
         workspace.tabs.insert(tab, at: insertionIndex)
         workspaces[hostID] = workspace
+        persist(workspace, for: hostID)
     }
 
     func moveTabToEnd(_ tabID: LocalTerminalTab.ID, for hostID: HostRecord.ID) {
@@ -142,6 +192,7 @@ final class LocalTerminalWorkspaceStore: ObservableObject {
         let tab = workspace.tabs.remove(at: sourceIndex)
         workspace.tabs.append(tab)
         workspaces[hostID] = workspace
+        persist(workspace, for: hostID)
     }
 
     func stopSelectedTab(for hostID: HostRecord.ID) {
@@ -155,14 +206,16 @@ final class LocalTerminalWorkspaceStore: ObservableObject {
             tab.session.stop()
             sessionObservers[tab.id] = nil
         }
+        persistedWorkspaces[hostID] = nil
+        savePersistedWorkspaces()
     }
 
     func isHostRunning(_ hostID: HostRecord.ID) -> Bool {
         workspaces[hostID]?.tabs.contains { $0.session.isRunning } ?? false
     }
 
-    private func makeTab(title: String, host: HostRecord) -> LocalTerminalTab {
-        let tab = LocalTerminalTab(title: title)
+    private func makeTab(id: UUID = UUID(), title: String, host: HostRecord) -> LocalTerminalTab {
+        let tab = LocalTerminalTab(id: id, title: title)
         tab.session.prepare(host: host)
         observe(tab)
         return tab
@@ -173,6 +226,66 @@ final class LocalTerminalWorkspaceStore: ObservableObject {
             Task { @MainActor in
                 self?.objectWillChange.send()
             }
+        }
+    }
+
+    private func makeWorkspace(from persistedWorkspace: PersistedWorkspace, host: HostRecord) -> Workspace? {
+        var seenTabIDs = Set<LocalTerminalTab.ID>()
+        let tabs = persistedWorkspace.tabs.compactMap { persistedTab -> LocalTerminalTab? in
+            let title = persistedTab.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !title.isEmpty,
+                  seenTabIDs.insert(persistedTab.id).inserted else {
+                return nil
+            }
+
+            return makeTab(id: persistedTab.id, title: title, host: host)
+        }
+
+        guard let firstTab = tabs.first else { return nil }
+        let selectedTabID = tabs.contains { $0.id == persistedWorkspace.selectedTabID }
+            ? persistedWorkspace.selectedTabID
+            : firstTab.id
+
+        return Workspace(selectedTabID: selectedTabID, tabs: tabs)
+    }
+
+    private func persist(_ workspace: Workspace, for hostID: HostRecord.ID) {
+        let persistedWorkspace = PersistedWorkspace(
+            hostID: hostID,
+            selectedTabID: workspace.selectedTabID,
+            tabs: workspace.tabs.map { PersistedTab(id: $0.id, title: $0.title) }
+        )
+        persistedWorkspaces[hostID] = persistedWorkspace
+        savePersistedWorkspaces()
+    }
+
+    private func loadPersistedWorkspaces() {
+        do {
+            let data = try Data(contentsOf: localURL)
+            let state = try decoder.decode(PersistedState.self, from: data)
+            persistedWorkspaces = state.workspaces.reduce(into: [:]) { result, workspace in
+                result[workspace.hostID] = workspace
+            }
+        } catch let error as CocoaError where error.code == .fileReadNoSuchFile {
+            persistedWorkspaces = [:]
+        } catch {
+            persistedWorkspaces = [:]
+        }
+    }
+
+    private func savePersistedWorkspaces() {
+        do {
+            try FileManager.default.createDirectory(
+                at: localURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true,
+                attributes: nil
+            )
+            let workspaces = persistedWorkspaces.values.sorted {
+                $0.hostID.uuidString < $1.hostID.uuidString
+            }
+            let data = try encoder.encode(PersistedState(workspaces: workspaces))
+            try data.write(to: localURL, options: .atomic)
+        } catch {
         }
     }
 }

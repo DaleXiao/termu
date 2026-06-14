@@ -2,7 +2,7 @@ diff --git a/Sources/SwiftTerm/Terminal.swift b/Sources/SwiftTerm/Terminal.swift
 index 0d7bc2f..ed08c28 100644
 --- a/Sources/SwiftTerm/Terminal.swift
 +++ b/Sources/SwiftTerm/Terminal.swift
-@@ -1439,6 +1439,19 @@ open class Terminal {
+@@ -1439,6 +1439,20 @@ open class Terminal {
          buffer.insertCharacter(
              charData)
      }

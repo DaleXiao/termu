@@ -63,6 +63,8 @@ if [[ -f "$SWIFTTERM_BUFFER" ]] && ! grep -q "termu disables resize reflow" "$SW
     patch -d "$SWIFTTERM_ROOT" -p1 < "$SWIFTTERM_DISABLE_REFLOW_PATCH"
 fi
 
+find "$SWIFTTERM_ROOT/Sources/SwiftTerm" -type f -name '*.orig' -delete
+
 swift build -c "$CONFIGURATION"
 
 case "$STAGE_DIR" in
