@@ -13,6 +13,8 @@ The first build focuses on the product shell:
 - one-click fallback launch into the system Terminal app
 
 The embedded terminal view uses SwiftTerm for VT100/xterm rendering while termu keeps its own SSH session layer for command construction, PTY lifecycle, saved-password submission, connection state, and failure reporting.
+<img width="1166" height="732" alt="image" src="https://github.com/user-attachments/assets/90da0c1a-dbbe-4fef-836b-76857cedbd39" />
+
 
 ## Build
 
