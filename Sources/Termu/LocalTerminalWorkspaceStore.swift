@@ -1,3 +1,4 @@
+import AppKit
 import Combine
 import Foundation
 
@@ -44,6 +45,9 @@ final class LocalTerminalWorkspaceStore: ObservableObject {
     private let decoder: JSONDecoder
     private var persistedWorkspaces: [HostRecord.ID: PersistedWorkspace] = [:]
     private var sessionObservers: [LocalTerminalTab.ID: AnyCancellable] = [:]
+    private var workspaceSaveTask: Task<Void, Never>?
+    private var terminationObserver: NSObjectProtocol?
+    private static let workspaceSaveDebounceNanoseconds: UInt64 = 350_000_000
 
     init() {
         let applicationSupport = FileManager.default.urls(
@@ -59,6 +63,7 @@ final class LocalTerminalWorkspaceStore: ObservableObject {
 
         decoder = JSONDecoder()
         loadPersistedWorkspaces()
+        observeApplicationTermination()
     }
 
     func ensureWorkspace(for host: HostRecord) {
@@ -179,7 +184,7 @@ final class LocalTerminalWorkspaceStore: ObservableObject {
         let tab = workspace.tabs.remove(at: sourceIndex)
         workspace.tabs.insert(tab, at: insertionIndex)
         workspaces[hostID] = workspace
-        persist(workspace, for: hostID)
+        persist(workspace, for: hostID, saveImmediately: false)
     }
 
     func moveTabToEnd(_ tabID: LocalTerminalTab.ID, for hostID: HostRecord.ID) {
@@ -192,7 +197,7 @@ final class LocalTerminalWorkspaceStore: ObservableObject {
         let tab = workspace.tabs.remove(at: sourceIndex)
         workspace.tabs.append(tab)
         workspaces[hostID] = workspace
-        persist(workspace, for: hostID)
+        persist(workspace, for: hostID, saveImmediately: false)
     }
 
     func stopSelectedTab(for hostID: HostRecord.ID) {
@@ -249,14 +254,46 @@ final class LocalTerminalWorkspaceStore: ObservableObject {
         return Workspace(selectedTabID: selectedTabID, tabs: tabs)
     }
 
-    private func persist(_ workspace: Workspace, for hostID: HostRecord.ID) {
+    private func persist(_ workspace: Workspace, for hostID: HostRecord.ID, saveImmediately: Bool = true) {
         let persistedWorkspace = PersistedWorkspace(
             hostID: hostID,
             selectedTabID: workspace.selectedTabID,
             tabs: workspace.tabs.map { PersistedTab(id: $0.id, title: $0.title) }
         )
         persistedWorkspaces[hostID] = persistedWorkspace
+        if saveImmediately {
+            savePersistedWorkspaces()
+        } else {
+            schedulePersistedWorkspacesSave()
+        }
+    }
+
+    private func schedulePersistedWorkspacesSave() {
+        workspaceSaveTask?.cancel()
+        workspaceSaveTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: Self.workspaceSaveDebounceNanoseconds)
+            guard !Task.isCancelled else { return }
+            self?.workspaceSaveTask = nil
+            self?.savePersistedWorkspaces()
+        }
+    }
+
+    private func flushScheduledPersistedWorkspacesSave() {
+        guard workspaceSaveTask != nil else { return }
+
         savePersistedWorkspaces()
+    }
+
+    private func observeApplicationTermination() {
+        terminationObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.willTerminateNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.flushScheduledPersistedWorkspacesSave()
+            }
+        }
     }
 
     private func loadPersistedWorkspaces() {
@@ -274,6 +311,9 @@ final class LocalTerminalWorkspaceStore: ObservableObject {
     }
 
     private func savePersistedWorkspaces() {
+        workspaceSaveTask?.cancel()
+        workspaceSaveTask = nil
+
         do {
             try FileManager.default.createDirectory(
                 at: localURL.deletingLastPathComponent(),

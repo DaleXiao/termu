@@ -23,6 +23,71 @@ final class PTYSession: ObservableObject {
         let currentDirectory: String?
     }
 
+    private struct TerminalReplayBuffer {
+        let limit: Int
+        private var chunks: [Data] = []
+        private var firstChunkIndex = 0
+        private(set) var count = 0
+
+        init(limit: Int) {
+            self.limit = limit
+        }
+
+        var isEmpty: Bool {
+            count == 0
+        }
+
+        var data: Data {
+            var result = Data()
+            result.reserveCapacity(count)
+            for index in firstChunkIndex..<chunks.count {
+                result.append(chunks[index])
+            }
+            return result
+        }
+
+        mutating func append(_ data: Data) {
+            guard !data.isEmpty else { return }
+
+            chunks.append(data)
+            count += data.count
+            trimToLimit()
+        }
+
+        mutating func removeAll() {
+            chunks.removeAll(keepingCapacity: true)
+            firstChunkIndex = 0
+            count = 0
+        }
+
+        private mutating func trimToLimit() {
+            var excess = count - limit
+            guard excess > 0 else { return }
+
+            while excess > 0, firstChunkIndex < chunks.count {
+                let chunkCount = chunks[firstChunkIndex].count
+                if chunkCount <= excess {
+                    excess -= chunkCount
+                    count -= chunkCount
+                    firstChunkIndex += 1
+                } else {
+                    chunks[firstChunkIndex].removeFirst(excess)
+                    count -= excess
+                    excess = 0
+                }
+            }
+
+            compactChunksIfNeeded()
+        }
+
+        private mutating func compactChunksIfNeeded() {
+            guard firstChunkIndex > 32, firstChunkIndex * 2 > chunks.count else { return }
+
+            chunks.removeFirst(firstChunkIndex)
+            firstChunkIndex = 0
+        }
+    }
+
     enum State: Equatable {
         case idle
         case connecting
@@ -74,8 +139,7 @@ final class PTYSession: ObservableObject {
     private weak var terminalRenderer: PTYSessionTerminalRenderer?
     private var terminalInitialText = ""
     private let outputLimit = 300_000
-    private let terminalReplayLimit = 1_000_000
-    private var terminalReplayBuffer = Data()
+    private var terminalReplayBuffer = TerminalReplayBuffer(limit: 1_000_000)
     private var masterFileHandle: FileHandle?
     private var masterFD: Int32 = -1
     private var childPID: pid_t = -1
@@ -99,7 +163,7 @@ final class PTYSession: ObservableObject {
         terminalRenderer = renderer
         renderer.resetTerminal(initialText: terminalInitialText.isEmpty ? initialText : terminalInitialText)
         if !terminalReplayBuffer.isEmpty {
-            renderer.feedTerminalData(terminalReplayBuffer)
+            renderer.feedTerminalData(terminalReplayBuffer.data)
         }
     }
 
@@ -329,6 +393,7 @@ final class PTYSession: ObservableObject {
 
         handle.readabilityHandler = { [weak self] readableHandle in
             let data = readableHandle.availableData
+            let visibleText = data.isEmpty ? "" : Self.visibleText(from: data)
 
             Task { @MainActor in
                 guard let self else { return }
@@ -340,7 +405,6 @@ final class PTYSession: ObservableObject {
                 }
 
                 let wasAwaitingSavedPasswordPrompt = !self.savedPassword.isEmpty && !self.sentSavedPassword
-                let visibleText = Self.visibleText(from: data)
                 let displayText = self.prepareDisplayText(from: visibleText)
                 let terminalData = self.terminalDisplayData(
                     rawData: data,
@@ -402,11 +466,9 @@ final class PTYSession: ObservableObject {
     private func append(_ text: String) {
         guard !text.isEmpty else { return }
 
-        appendTerminalText(redacted(text))
-
-        if !savedPassword.isEmpty {
-            output = output.replacingOccurrences(of: savedPassword, with: "[password hidden]")
-        }
+        let redactedText = redacted(text)
+        appendTerminalText(redactedText)
+        redactOutputTail(appendedCharacterCount: redactedText.count)
 
         if output.count > outputLimit {
             output.removeFirst(output.count - outputLimit)
@@ -434,6 +496,18 @@ final class PTYSession: ObservableObject {
     private func redacted(_ text: String) -> String {
         guard !savedPassword.isEmpty else { return text }
         return text.replacingOccurrences(of: savedPassword, with: "[password hidden]")
+    }
+
+    private func redactOutputTail(appendedCharacterCount: Int) {
+        guard !savedPassword.isEmpty, !output.isEmpty else { return }
+
+        let tailLength = min(output.count, max(savedPassword.count + appendedCharacterCount + 1, savedPassword.count))
+        guard tailLength > 0 else { return }
+
+        let tailStart = output.index(output.endIndex, offsetBy: -tailLength)
+        let redactedTail = String(output[tailStart...])
+            .replacingOccurrences(of: savedPassword, with: "[password hidden]")
+        output.replaceSubrange(tailStart..., with: redactedTail)
     }
 
     private func redactedTerminalData(_ data: Data) -> Data {
@@ -500,10 +574,6 @@ final class PTYSession: ObservableObject {
 
     private func appendTerminalReplayData(_ data: Data) {
         terminalReplayBuffer.append(data)
-
-        if terminalReplayBuffer.count > terminalReplayLimit {
-            terminalReplayBuffer.removeFirst(terminalReplayBuffer.count - terminalReplayLimit)
-        }
     }
 
     private func prepareDisplayText(from text: String) -> String {
@@ -586,15 +656,27 @@ final class PTYSession: ObservableObject {
         text.lowercased().contains("permission denied")
     }
 
-    private static func visibleText(from data: Data) -> String {
+    nonisolated private static func visibleText(from data: Data) -> String {
         let decoded = String(decoding: data, as: UTF8.self)
-            .replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n")
-
+        let lineFeed = UnicodeScalar(0x0A)!
         var result = String.UnicodeScalarView()
         var escapeState = EscapeState.normal
+        var skipsNextLineFeed = false
 
-        for scalar in decoded.unicodeScalars {
+        for decodedScalar in decoded.unicodeScalars {
+            if skipsNextLineFeed {
+                skipsNextLineFeed = false
+                if decodedScalar.value == 0x0A {
+                    continue
+                }
+            }
+
+            let isCarriageReturn = decodedScalar.value == 0x0D
+            let scalar = isCarriageReturn ? lineFeed : decodedScalar
+            if isCarriageReturn {
+                skipsNextLineFeed = true
+            }
+
             switch escapeState {
             case .normal:
                 switch scalar.value {

@@ -30,6 +30,9 @@ final class SidebarSplitViewWidthLimiterView: NSView {
     private var onDividerDrag: () -> Void
     private var eventMonitor: EventMonitorBox?
     private var isTrackingDividerDrag = false
+    private weak var cachedSplitView: NSSplitView?
+    private weak var cachedSidebarView: NSView?
+    private var pendingApplyWorkItem: DispatchWorkItem?
 
     init(minWidth: CGFloat, maxWidth: CGFloat, onDividerDrag: @escaping () -> Void) {
         self.minWidth = minWidth
@@ -51,6 +54,8 @@ final class SidebarSplitViewWidthLimiterView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        cachedSplitView = nil
+        cachedSidebarView = nil
         installEventMonitorIfNeeded()
         scheduleApply()
     }
@@ -64,14 +69,19 @@ final class SidebarSplitViewWidthLimiterView: NSView {
     }
 
     private func scheduleApply() {
-        DispatchQueue.main.async { [weak self] in
-            self?.apply()
+        guard pendingApplyWorkItem == nil else { return }
+
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.pendingApplyWorkItem = nil
+            self.apply()
         }
+        pendingApplyWorkItem = workItem
+        DispatchQueue.main.async(execute: workItem)
     }
 
     private func apply() {
-        guard let splitView = splitViewContainingSelf() else { return }
-        guard let sidebarView = directChild(in: splitView) else { return }
+        guard let (splitView, sidebarView) = splitViewAndSidebarView() else { return }
         guard let splitViewController = splitViewController(for: splitView) else { return }
         guard let splitViewItem = splitViewController.splitViewItems.first(where: { item in
             item.viewController.view === sidebarView
@@ -96,8 +106,7 @@ final class SidebarSplitViewWidthLimiterView: NSView {
 
     private func handle(_ event: NSEvent) {
         guard event.window === window else { return }
-        guard let splitView = splitViewContainingSelf() else { return }
-        guard let sidebarView = directChild(in: splitView) else { return }
+        guard let (splitView, sidebarView) = splitViewAndSidebarView() else { return }
 
         let point = splitView.convert(event.locationInWindow, from: nil)
         let dividerX = sidebarView.frame.maxX
@@ -123,6 +132,21 @@ final class SidebarSplitViewWidthLimiterView: NSView {
         default:
             break
         }
+    }
+
+    private func splitViewAndSidebarView() -> (NSSplitView, NSView)? {
+        if let cachedSplitView,
+           let cachedSidebarView,
+           cachedSidebarView.superview === cachedSplitView {
+            return (cachedSplitView, cachedSidebarView)
+        }
+
+        guard let splitView = splitViewContainingSelf() else { return nil }
+        guard let sidebarView = directChild(in: splitView) else { return nil }
+
+        cachedSplitView = splitView
+        cachedSidebarView = sidebarView
+        return (splitView, sidebarView)
     }
 
     private func splitViewContainingSelf() -> NSSplitView? {

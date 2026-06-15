@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import SwiftUI
 
@@ -15,6 +16,9 @@ final class ConfigurationStore: ObservableObject {
     private var cloudObserver: NSObjectProtocol?
     private var isApplyingRemoteConfiguration = false
     private var selectionSaveTask: Task<Void, Never>?
+    private var cloudPushTask: Task<Void, Never>?
+    private var terminationObserver: NSObjectProtocol?
+    private static let cloudPushDebounceNanoseconds: UInt64 = 500_000_000
 
     init() {
         let applicationSupport = FileManager.default.urls(
@@ -35,6 +39,7 @@ final class ConfigurationStore: ObservableObject {
         loadLocalConfiguration()
         selectedHostID = configuration.selectedHostID ?? configuration.hosts.first?.id
         observeICloudChanges()
+        observeApplicationTermination()
         pullFromICloud()
     }
 
@@ -149,6 +154,7 @@ final class ConfigurationStore: ObservableObject {
     }
 
     func refreshICloud() {
+        flushScheduledICloudPush()
         pullFromICloud()
     }
 
@@ -235,7 +241,45 @@ final class ConfigurationStore: ObservableObject {
         saveLocalConfiguration()
 
         if pushToCloud {
-            pushToICloud()
+            scheduleICloudPush()
+        }
+    }
+
+    private func scheduleICloudPush() {
+        cloudPushTask?.cancel()
+
+        guard FileManager.default.ubiquityIdentityToken != nil else {
+            cloudStatus = .unavailable
+            cloudPushTask = nil
+            return
+        }
+
+        cloudStatus = .syncing
+        cloudPushTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: Self.cloudPushDebounceNanoseconds)
+            guard !Task.isCancelled else { return }
+            self?.cloudPushTask = nil
+            self?.pushToICloud()
+        }
+    }
+
+    private func flushScheduledICloudPush() {
+        guard cloudPushTask != nil else { return }
+
+        cloudPushTask?.cancel()
+        cloudPushTask = nil
+        pushToICloud()
+    }
+
+    private func observeApplicationTermination() {
+        terminationObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.willTerminateNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.flushScheduledICloudPush()
+            }
         }
     }
 
@@ -325,6 +369,9 @@ final class ConfigurationStore: ObservableObject {
     }
 
     private func pushToICloud() {
+        cloudPushTask?.cancel()
+        cloudPushTask = nil
+
         guard FileManager.default.ubiquityIdentityToken != nil else {
             cloudStatus = .unavailable
             return

@@ -118,6 +118,7 @@ struct TerminalTextView: NSViewRepresentable {
         static let initialTerminalFrame = CGRect(x: 0, y: 0, width: 1_000, height: 600)
 
         let terminalView: TerminalView
+        private var pendingTerminalLayoutUpdate: DispatchWorkItem?
 
         override var isFlipped: Bool {
             true
@@ -144,10 +145,34 @@ struct TerminalTextView: NSViewRepresentable {
 
             if terminalView.frame != bounds {
                 terminalView.frame = bounds
-                terminalView.getTerminal().updateFullScreen()
-                terminalView.setNeedsDisplay(terminalView.bounds)
+                scheduleTerminalLayoutUpdate()
+            } else {
+                notifyTerminalSizeChanged()
             }
+        }
 
+        private func scheduleTerminalLayoutUpdate() {
+            guard pendingTerminalLayoutUpdate == nil else { return }
+
+            let workItem = DispatchWorkItem { [weak self] in
+                guard let self else { return }
+                self.pendingTerminalLayoutUpdate = nil
+                self.updateTerminalLayout()
+            }
+            pendingTerminalLayoutUpdate = workItem
+            DispatchQueue.main.async(execute: workItem)
+        }
+
+        private func updateTerminalLayout() {
+            guard terminalView.superview === self else { return }
+            guard bounds.width > 0, bounds.height > 0 else { return }
+
+            terminalView.getTerminal().updateFullScreen()
+            terminalView.setNeedsDisplay(terminalView.bounds)
+            notifyTerminalSizeChanged()
+        }
+
+        private func notifyTerminalSizeChanged() {
             let dims = terminalView.getTerminal().getDims()
             terminalView.terminalDelegate?.sizeChanged(
                 source: terminalView,
@@ -170,6 +195,8 @@ struct TerminalTextView: NSViewRepresentable {
                 needsLayout = true
                 terminalView.needsDisplay = true
             } else {
+                pendingTerminalLayoutUpdate?.cancel()
+                pendingTerminalLayoutUpdate = nil
                 terminalView.removeFromSuperview()
                 isHidden = true
             }
@@ -186,6 +213,8 @@ struct TerminalTextView: NSViewRepresentable {
         private var wasActive = false
         private var lastTerminalSize: (cols: Int, rows: Int)?
         private var pendingResizeWorkItem: DispatchWorkItem?
+        private var pendingTerminalDataWorkItem: DispatchWorkItem?
+        private var pendingFocusWorkItems: [DispatchWorkItem] = []
         private var isReadyForTerminalData = false
         private var pendingTerminalData = Data()
         private static let resizeDebounceDelay: TimeInterval = 0.08
@@ -206,6 +235,8 @@ struct TerminalTextView: NSViewRepresentable {
             if terminalViewChanged {
                 self.terminalView = terminalView
                 isReadyForTerminalData = false
+                pendingTerminalDataWorkItem?.cancel()
+                pendingTerminalDataWorkItem = nil
                 pendingTerminalData.removeAll()
                 configure(terminalView)
                 shouldRequestFocus = isActive
@@ -227,6 +258,8 @@ struct TerminalTextView: NSViewRepresentable {
             if sessionChanged {
                 pendingResizeWorkItem?.cancel()
                 pendingResizeWorkItem = nil
+                pendingTerminalDataWorkItem?.cancel()
+                pendingTerminalDataWorkItem = nil
                 lastTerminalSize = nil
                 if terminalViewChanged {
                     isReadyForTerminalData = false
@@ -248,6 +281,9 @@ struct TerminalTextView: NSViewRepresentable {
         func unbind() {
             pendingResizeWorkItem?.cancel()
             pendingResizeWorkItem = nil
+            pendingTerminalDataWorkItem?.cancel()
+            pendingTerminalDataWorkItem = nil
+            cancelPendingFocusRequests()
             pendingTerminalData.removeAll()
             session?.detachTerminalRenderer(self)
             session = nil
@@ -261,6 +297,8 @@ struct TerminalTextView: NSViewRepresentable {
 
         func resetTerminal(initialText: String) {
             renderedInitialText = initialText
+            pendingTerminalDataWorkItem?.cancel()
+            pendingTerminalDataWorkItem = nil
             pendingTerminalData.removeAll()
             guard let terminalView else { return }
 
@@ -270,22 +308,38 @@ struct TerminalTextView: NSViewRepresentable {
         }
 
         func feedTerminalData(_ data: Data) {
-            guard let terminalView else { return }
+            guard terminalView != nil else { return }
 
             guard isReadyForTerminalData else {
                 pendingTerminalData.append(data)
                 return
             }
 
-            renderTerminalData(data, in: terminalView)
+            pendingTerminalData.append(data)
+            schedulePendingTerminalDataFlush()
         }
 
         private func renderTerminalData(_ data: Data, in terminalView: TerminalView) {
+            guard !data.isEmpty else { return }
+
             let bytes = [UInt8](data)
             terminalView.feed(byteArray: bytes[...])
         }
 
+        private func schedulePendingTerminalDataFlush() {
+            guard pendingTerminalDataWorkItem == nil else { return }
+
+            let workItem = DispatchWorkItem { [weak self] in
+                self?.flushPendingTerminalData()
+            }
+            pendingTerminalDataWorkItem = workItem
+            DispatchQueue.main.async(execute: workItem)
+        }
+
         private func flushPendingTerminalData() {
+            pendingTerminalDataWorkItem?.cancel()
+            pendingTerminalDataWorkItem = nil
+
             guard isReadyForTerminalData,
                   !pendingTerminalData.isEmpty,
                   let terminalView else {
@@ -293,7 +347,7 @@ struct TerminalTextView: NSViewRepresentable {
             }
 
             let data = pendingTerminalData
-            pendingTerminalData.removeAll()
+            pendingTerminalData.removeAll(keepingCapacity: true)
             renderTerminalData(data, in: terminalView)
         }
 
@@ -363,6 +417,7 @@ struct TerminalTextView: NSViewRepresentable {
         func iTermContent(source: TerminalView, content: ArraySlice<UInt8>) {}
 
         func requestFocus() {
+            cancelPendingFocusRequests()
             focusAfterDelay(0)
             focusAfterDelay(0.05)
             focusAfterDelay(0.15)
@@ -398,10 +453,17 @@ struct TerminalTextView: NSViewRepresentable {
         }
 
         private func focusAfterDelay(_ delay: TimeInterval) {
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            let workItem = DispatchWorkItem { [weak self] in
                 guard let terminalView = self?.terminalView else { return }
                 terminalView.window?.makeFirstResponder(terminalView)
             }
+            pendingFocusWorkItems.append(workItem)
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
+        }
+
+        private func cancelPendingFocusRequests() {
+            pendingFocusWorkItems.forEach { $0.cancel() }
+            pendingFocusWorkItems.removeAll(keepingCapacity: true)
         }
     }
 }
