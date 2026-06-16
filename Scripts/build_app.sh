@@ -21,7 +21,8 @@ SWIFTTERM_MARGIN_WRAP_PATCH="$ROOT/Patches/SwiftTerm-margin-wrap-reflow.patch"
 SWIFTTERM_PENDING_WRAP_PATCH="$ROOT/Patches/SwiftTerm-pending-wrap-vertical.patch"
 SWIFTTERM_CLEAR_WRAPPED_EL_PATCH="$ROOT/Patches/SwiftTerm-clear-wrapped-el.patch"
 SWIFTTERM_CLEAR_WRAPPED_ED_PATCH="$ROOT/Patches/SwiftTerm-clear-wrapped-ed.patch"
-SWIFTTERM_DISABLE_REFLOW_PATCH="$ROOT/Patches/SwiftTerm-disable-resize-reflow.patch"
+SWIFTTERM_SAFE_REFLOW_PATCH="$ROOT/Patches/SwiftTerm-safe-resize-reflow.patch"
+SWIFTTERM_SAFE_REFLOW_MIGRATION_PATCH="$ROOT/Patches/SwiftTerm-safe-resize-reflow-migration.patch"
 
 if [[ -f "$SWIFTTERM_MAC_VIEW" ]] && ! grep -q "nativeBackgroundColor.setFill()" "$SWIFTTERM_MAC_VIEW"; then
     chmod u+w "$SWIFTTERM_MAC_VIEW"
@@ -58,9 +59,12 @@ if [[ -f "$SWIFTTERM_TERMINAL" ]] && ! grep -q "displayLeftBound" "$SWIFTTERM_TE
     patch -d "$SWIFTTERM_ROOT" -p1 < "$SWIFTTERM_CLEAR_WRAPPED_ED_PATCH"
 fi
 
-if [[ -f "$SWIFTTERM_BUFFER" ]] && ! grep -q "termu disables resize reflow" "$SWIFTTERM_BUFFER"; then
+if [[ -f "$SWIFTTERM_BUFFER" ]] && grep -q "termu disables resize reflow" "$SWIFTTERM_BUFFER"; then
     chmod u+w "$SWIFTTERM_BUFFER"
-    patch -d "$SWIFTTERM_ROOT" -p1 < "$SWIFTTERM_DISABLE_REFLOW_PATCH"
+    patch -d "$SWIFTTERM_ROOT" -p1 < "$SWIFTTERM_SAFE_REFLOW_MIGRATION_PATCH"
+elif [[ -f "$SWIFTTERM_BUFFER" ]] && ! grep -q "termu reflows only when wrapped lines are full-width scrollback rows" "$SWIFTTERM_BUFFER"; then
+    chmod u+w "$SWIFTTERM_BUFFER"
+    patch -d "$SWIFTTERM_ROOT" -p1 < "$SWIFTTERM_SAFE_REFLOW_PATCH"
 fi
 
 find "$SWIFTTERM_ROOT/Sources/SwiftTerm" -type f -name '*.orig' -delete

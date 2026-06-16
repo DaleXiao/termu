@@ -1,14 +1,15 @@
 diff --git a/Sources/SwiftTerm/Buffer.swift b/Sources/SwiftTerm/Buffer.swift
-index e7e7857..5710bbe 100644
+index e7e7857..8b6cfab 100644
 --- a/Sources/SwiftTerm/Buffer.swift
 +++ b/Sources/SwiftTerm/Buffer.swift
-@@ -402,7 +402,8 @@ public final class Buffer {
+@@ -402,7 +402,9 @@ public final class Buffer {
      }
      
      public var isReflowEnabled: Bool {
 -        return hasScrollback
-+        // termu disables resize reflow because repeated width changes can duplicate wrapped scrollback lines.
-+        return false
++        // termu reflows only when wrapped lines are full-width scrollback rows.
++        let hasFullWidthMargins = !marginMode || (_marginLeft == 0 && _marginRight == _cols - 1)
++        return hasScrollback && hasFullWidthMargins
      }
      
      public func resize (newCols : Int, newRows : Int)
