@@ -2,6 +2,9 @@
 
 `termu` is a native macOS multi-host terminal manager starter app.
 
+<img width="1415" height="797" alt="image" src="https://github.com/user-attachments/assets/6d2a2161-38d5-47cd-a2a7-54460feae14a" />
+
+
 The first build focuses on the product shell:
 
 - host and group management
@@ -13,7 +16,6 @@ The first build focuses on the product shell:
 - one-click fallback launch into the system Terminal app
 
 The embedded terminal view uses SwiftTerm for VT100/xterm rendering while termu keeps its own SSH session layer for command construction, PTY lifecycle, saved-password submission, connection state, and failure reporting.
-<img width="1166" height="732" alt="image" src="https://github.com/user-attachments/assets/90da0c1a-dbbe-4fef-836b-76857cedbd39" />
 
 
 ## Build
