@@ -46,3 +46,8 @@ When a signing identity is available:
 ```sh
 TERMU_CODESIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)" Scripts/build_app.sh
 ```
+
+## License
+
+termu is licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE)
+and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
