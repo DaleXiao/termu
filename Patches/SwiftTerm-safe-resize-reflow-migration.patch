@@ -1,0 +1,263 @@
+diff --git a/Sources/SwiftTerm/Buffer.swift b/Sources/SwiftTerm/Buffer.swift
+index 5710bbe..9d2fe62 100644
+--- a/Sources/SwiftTerm/Buffer.swift
++++ b/Sources/SwiftTerm/Buffer.swift
+@@ -402,8 +402,9 @@ public final class Buffer {
+     }
+     
+     public var isReflowEnabled: Bool {
+-        // termu disables resize reflow because repeated width changes can duplicate wrapped scrollback lines.
+-        return false
++        // termu reflows only when wrapped rows can be interpreted as full-width logical lines.
++        let hasFullWidthMargins = !marginMode || (_marginLeft == 0 && _marginRight == _cols - 1)
++        return hasScrollback && hasFullWidthMargins
+     }
+     
+     public func resize (newCols : Int, newRows : Int)
+@@ -1077,18 +1078,239 @@ public final class Buffer {
+         }
+     }
+     
+-    func reflow (_ newCols: Int, _ newRows: Int)
++    private func resizedCopy(_ line: BufferLine, cols: Int) -> BufferLine
+     {
+-        if cols == newCols {
+-            return
++        let copy = BufferLine(from: line)
++        copy.resize(cols: cols, fillData: CharData.Null)
++        return copy
++    }
++
++    private func canSafelyReflow(_ wrappedLines: [BufferLine], containsCursor: Bool) -> Bool
++    {
++        guard !containsCursor else { return false }
++        guard let firstLine = wrappedLines.first, !firstLine.isWrapped else { return false }
++
++        for line in wrappedLines {
++            if line.images != nil || line.renderMode != .single {
++                return false
++            }
++        }
++
++        return true
++    }
++
++    private func flattenedReflowCells(
++        _ wrappedLines: [BufferLine],
++        oldCols: Int
++    ) -> (cells: [CharData], oldLineOffsets: [Int])
++    {
++        var cells: [CharData] = []
++        var oldLineOffsets: [Int] = []
++        var displayOffset = 0
++
++        for index in 0..<wrappedLines.count {
++            oldLineOffsets.append(displayOffset)
++
++            let line = wrappedLines[index]
++            let nextLine = index == wrappedLines.count - 1 ? nil : wrappedLines[index + 1]
++            let length = min(line.count, getWrappedLineTrimmedLength(line, nextLine, oldCols))
++            guard length > 0 else { continue }
++
++            for col in 0..<length {
++                let cell = line[col]
++                guard cell.width != 0 else { continue }
++
++                cells.append(cell)
++                displayOffset += max(Int(cell.width), 1)
++            }
++        }
++
++        return (cells, oldLineOffsets)
++    }
++
++    private func makeReflowedLines(
++        from cells: [CharData],
++        newCols: Int,
++        firstLineWrapped: Bool
++    ) -> [BufferLine]
++    {
++        guard !cells.isEmpty else { return [] }
++
++        var result: [BufferLine] = []
++        var line = BufferLine(cols: newCols, fillData: CharData.Null, isWrapped: firstLineWrapped)
++        var col = 0
++
++        func appendLine() {
++            result.append(line)
++            line = BufferLine(cols: newCols, fillData: CharData.Null, isWrapped: true)
++            col = 0
++        }
++
++        for cell in cells {
++            let width = max(Int(cell.width), 1)
++            if col > 0 && col + width > newCols {
++                appendLine()
++            }
++            if width == 2 && col == newCols - 1 {
++                appendLine()
++            }
++
++            line[col] = cell
++            if width > 1 && col + 1 < newCols {
++                line[col + 1] = CharData(attribute: cell.attribute, code: 0, size: 0)
++            }
++            col += width
++        }
++
++        result.append(line)
++        return result
++    }
++
++    private func replaceLinesAfterReflow(
++        with newLines: [BufferLine],
++        oldToNewLineMap: [Int],
++        oldYBase: Int,
++        oldYDisp: Int,
++        oldCursorAbsoluteY: Int,
++        newCols: Int,
++        newRows: Int
++    )
++    {
++        let maxLength = lines.maxLength
++        var outputLines = newLines
++        let trimmedFromTop = max(0, outputLines.count - maxLength)
++        if trimmedFromTop > 0 {
++            outputLines.removeFirst(trimmedFromTop)
++            linesTop += trimmedFromTop
++        }
++
++        while outputLines.count < newRows {
++            outputLines.append(BufferLine(cols: newCols, fillData: CharData.Null))
++        }
++
++        let newLineCount = outputLines.count
++        let newBufferLines = CircularBufferLineList(maxLength: maxLength)
++        newBufferLines.makeEmpty = { _ in
++            BufferLine(cols: newCols, fillData: CharData.Null, isWrapped: false)
++        }
++
++        for line in outputLines {
++            newBufferLines.push(line)
++        }
++
++        _lines = newBufferLines
++        setupLinesCallbacks()
++
++        func mappedLine(_ oldLine: Int) -> Int {
++            guard !oldToNewLineMap.isEmpty else { return 0 }
++            let boundedOldLine = max(0, min(oldLine, oldToNewLineMap.count - 1))
++            let mapped = oldToNewLineMap[boundedOldLine] - trimmedFromTop
++            return max(0, min(mapped, max(newLineCount - 1, 0)))
+         }
+-        // iterate through rows, ignore the last one as it cannot be wrapped
+ 
+-        if newCols > cols {
+-            reflowWider (cols, rows, newCols, newRows)
++        let maxYBase = max(0, newLineCount - newRows)
++        let mappedCursorAbsoluteY = mappedLine(oldCursorAbsoluteY)
++        var newYBase = min(max(mappedLine(oldYBase), 0), maxYBase)
++        if mappedCursorAbsoluteY < newYBase {
++            newYBase = mappedCursorAbsoluteY
++        } else if mappedCursorAbsoluteY >= newYBase + newRows {
++            newYBase = mappedCursorAbsoluteY - newRows + 1
++        }
++        newYBase = min(max(newYBase, 0), maxYBase)
++
++        yBase = newYBase
++        y = min(max(mappedCursorAbsoluteY - newYBase, 0), max(newRows - 1, 0))
++
++        if oldYDisp == oldYBase {
++            yDisp = yBase
+         } else {
+-            reflowNarrower (cols, rows, newCols, newRows)
++            yDisp = min(max(mappedLine(oldYDisp), 0), maxYBase)
++        }
++    }
++
++    private func safeReflow(_ oldCols: Int, _ newCols: Int, _ newRows: Int)
++    {
++        let oldLineCount = lines.count
++        guard oldLineCount > 0 else { return }
++
++        let oldYBase = yBase
++        let oldYDisp = yDisp
++        let oldCursorAbsoluteY = yBase + y
++
++        var outputLines: [BufferLine] = []
++        var oldToNewLineMap = Array(repeating: 0, count: oldLineCount)
++        var index = 0
++
++        while index < oldLineCount {
++            let start = index
++            var end = index
++            while end + 1 < oldLineCount && lines[end + 1].isWrapped {
++                end += 1
++            }
++
++            var wrappedLines: [BufferLine] = []
++            wrappedLines.reserveCapacity(end - start + 1)
++            for lineIndex in start...end {
++                wrappedLines.append(lines[lineIndex])
++            }
++
++            let containsCursor = oldCursorAbsoluteY >= start && oldCursorAbsoluteY <= end
++            let lineLength = wrappedLines.count == 1 ? wrappedLines[0].getTrimmedLength() : oldCols + 1
++            let shouldReflow = canSafelyReflow(wrappedLines, containsCursor: containsCursor)
++                && (wrappedLines.count > 1 || lineLength > newCols)
++
++            if shouldReflow {
++                let flattened = flattenedReflowCells(wrappedLines, oldCols: oldCols)
++                let reflowedLines = makeReflowedLines(
++                    from: flattened.cells,
++                    newCols: newCols,
++                    firstLineWrapped: false
++                )
++
++                if !reflowedLines.isEmpty {
++                    let newStart = outputLines.count
++                    outputLines.append(contentsOf: reflowedLines)
++
++                    for offsetIndex in 0..<flattened.oldLineOffsets.count {
++                        let mappedRelativeLine = min(
++                            flattened.oldLineOffsets[offsetIndex] / newCols,
++                            reflowedLines.count - 1
++                        )
++                        oldToNewLineMap[start + offsetIndex] = newStart + mappedRelativeLine
++                    }
++                } else {
++                    for relativeIndex in 0..<wrappedLines.count {
++                        outputLines.append(resizedCopy(wrappedLines[relativeIndex], cols: newCols))
++                        oldToNewLineMap[start + relativeIndex] = outputLines.count - 1
++                    }
++                }
++            } else {
++                for relativeIndex in 0..<wrappedLines.count {
++                    outputLines.append(resizedCopy(wrappedLines[relativeIndex], cols: newCols))
++                    oldToNewLineMap[start + relativeIndex] = outputLines.count - 1
++                }
++            }
++
++            index = end + 1
++        }
++
++        replaceLinesAfterReflow(
++            with: outputLines,
++            oldToNewLineMap: oldToNewLineMap,
++            oldYBase: oldYBase,
++            oldYDisp: oldYDisp,
++            oldCursorAbsoluteY: oldCursorAbsoluteY,
++            newCols: newCols,
++            newRows: newRows
++        )
++    }
++
++    func reflow (_ newCols: Int, _ newRows: Int)
++    {
++        if cols == newCols {
++            return
+         }
++        safeReflow(cols, newCols, newRows)
+         recalculateLinesWithImagesCount()
+     }
+     
