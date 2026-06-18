@@ -141,6 +141,7 @@ struct TerminalTextView: NSViewRepresentable {
         override func layout() {
             super.layout()
             guard terminalView.superview === self else { return }
+            guard terminalView.terminalDelegate != nil else { return }
             guard bounds.width > 0, bounds.height > 0 else { return }
 
             if terminalView.frame != bounds {
@@ -188,18 +189,36 @@ struct TerminalTextView: NSViewRepresentable {
 
         func setActive(_ isActive: Bool) {
             if isActive {
+                let becameActive = isHidden || terminalView.superview !== self
                 isHidden = false
                 if terminalView.superview !== self {
                     addSubview(terminalView)
                 }
                 needsLayout = true
-                terminalView.needsDisplay = true
+                terminalView.setNeedsDisplay(terminalView.bounds)
+                if becameActive {
+                    refreshTerminalLayoutImmediately()
+                }
             } else {
                 pendingTerminalLayoutUpdate?.cancel()
                 pendingTerminalLayoutUpdate = nil
                 terminalView.removeFromSuperview()
                 isHidden = true
             }
+        }
+
+        private func refreshTerminalLayoutImmediately() {
+            pendingTerminalLayoutUpdate?.cancel()
+            pendingTerminalLayoutUpdate = nil
+
+            guard terminalView.superview === self else { return }
+            guard terminalView.terminalDelegate != nil else { return }
+            guard bounds.width > 0, bounds.height > 0 else { return }
+
+            if terminalView.frame != bounds {
+                terminalView.frame = bounds
+            }
+            updateTerminalLayout()
         }
     }
 
@@ -211,6 +230,8 @@ struct TerminalTextView: NSViewRepresentable {
         private var appliedTheme: TerminalTheme?
         private var appliedColorScheme: ColorScheme?
         private var wasActive = false
+        private var isActive = false
+        private var needsFullRedrawOnActivation = false
         private var lastTerminalSize: (cols: Int, rows: Int)?
         private var pendingResizeWorkItem: DispatchWorkItem?
         private var pendingTerminalDataWorkItem: DispatchWorkItem?
@@ -270,8 +291,17 @@ struct TerminalTextView: NSViewRepresentable {
                 session.attachTerminalRenderer(self, initialText: initialText)
             }
 
-            if isActive, !wasActive {
+            let becameActive = isActive && !wasActive
+            self.isActive = isActive
+
+            if becameActive {
                 shouldRequestFocus = true
+                flushPendingTerminalData()
+                redrawFullTerminal(terminalView)
+                needsFullRedrawOnActivation = false
+            } else if isActive, needsFullRedrawOnActivation {
+                redrawFullTerminal(terminalView)
+                needsFullRedrawOnActivation = false
             }
             wasActive = isActive
 
@@ -391,7 +421,17 @@ struct TerminalTextView: NSViewRepresentable {
             session?.send(data)
         }
 
-        func scrolled(source: TerminalView, position: Double) {}
+        func scrolled(source: TerminalView, position: Double) {
+            guard isActive else {
+                needsFullRedrawOnActivation = true
+                return
+            }
+
+            // SwiftTerm only marks the scroll boundary rows dirty for scrollback-backed
+            // output. termu uses partial redraws for performance, so an actual scroll
+            // must repaint the whole visible terminal to avoid stale row fragments.
+            redrawFullTerminal(source)
+        }
 
         func rangeChanged(source: TerminalView, startY: Int, endY: Int) {}
 
