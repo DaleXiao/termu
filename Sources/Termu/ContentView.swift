@@ -658,8 +658,7 @@ private struct SettingsPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Settings")
-                .font(.headline)
+            AppAboutHeader()
 
             Divider()
 
@@ -725,6 +724,44 @@ private struct SettingsPanel: View {
         }
         .padding(16)
         .frame(width: 320)
+    }
+}
+
+private struct AppAboutHeader: View {
+    private var versionText: String {
+        let info = Bundle.main.infoDictionary
+        let version = info?["CFBundleShortVersionString"] as? String
+        let build = info?["CFBundleVersion"] as? String
+
+        switch (version, build) {
+        case let (version?, build?) where !build.isEmpty:
+            return "Version \(version) (\(build))"
+        case let (version?, _):
+            return "Version \(version)"
+        default:
+            return "Version Unknown"
+        }
+    }
+
+    var body: some View {
+        VStack(spacing: 8) {
+            Image(nsImage: NSApplication.shared.applicationIconImage)
+                .resizable()
+                .interpolation(.high)
+                .frame(width: 64, height: 64)
+                .shadow(color: .black.opacity(0.14), radius: 8, y: 3)
+
+            VStack(spacing: 2) {
+                Text("About Termu")
+                    .font(.headline)
+                Text(versionText)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 2)
+        .padding(.bottom, 4)
     }
 }
 
