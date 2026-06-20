@@ -20,6 +20,11 @@ let package = Package(
                 .product(name: "SwiftTerm", package: "SwiftTerm")
             ],
             path: "Sources/Termu"
+        ),
+        .testTarget(
+            name: "TermuTests",
+            dependencies: ["Termu"],
+            path: "Tests/TermuTests"
         )
     ]
 )

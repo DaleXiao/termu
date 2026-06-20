@@ -618,13 +618,13 @@ final class PTYSession: ObservableObject {
         }
     }
 
-    private static func containsPasswordPrompt(_ text: String) -> Bool {
+    nonisolated static func containsPasswordPrompt(_ text: String) -> Bool {
         guard !containsAuthenticationFailure(text) else { return false }
 
         return text.components(separatedBy: .newlines).suffix(4).contains(where: isPasswordPromptLine)
     }
 
-    private static func isPasswordPromptLine(_ line: String) -> Bool {
+    nonisolated private static func isPasswordPromptLine(_ line: String) -> Bool {
         let prompt = line.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard prompt.hasSuffix(":") || prompt.hasSuffix("：") else { return false }
 
@@ -635,7 +635,7 @@ final class PTYSession: ObservableObject {
             || prompt.hasPrefix("enter passphrase")
     }
 
-    private static func removingPasswordPromptLines(from text: String) -> String {
+    nonisolated static func removingPasswordPromptLines(from text: String) -> String {
         let lines = text.components(separatedBy: .newlines)
         var removedLastLine = false
         let filteredLines = lines.enumerated().compactMap { index, line -> String? in
@@ -652,11 +652,11 @@ final class PTYSession: ObservableObject {
         return filteredText
     }
 
-    private static func containsAuthenticationFailure(_ text: String) -> Bool {
+    nonisolated private static func containsAuthenticationFailure(_ text: String) -> Bool {
         text.lowercased().contains("permission denied")
     }
 
-    nonisolated private static func visibleText(from data: Data) -> String {
+    nonisolated static func visibleText(from data: Data) -> String {
         let decoded = String(decoding: data, as: UTF8.self)
         let lineFeed = UnicodeScalar(0x0A)!
         var result = String.UnicodeScalarView()
@@ -730,7 +730,7 @@ final class PTYSession: ObservableObject {
         return String(result)
     }
 
-    private static func trimmingLeadingLineBreaksPreservingTerminalControls(from data: Data) -> Data {
+    nonisolated static func trimmingLeadingLineBreaksPreservingTerminalControls(from data: Data) -> Data {
         var index = data.startIndex
         var controlPrefix = Data()
         var pendingBlankLineBytes = Data()
@@ -770,7 +770,7 @@ final class PTYSession: ObservableObject {
         return trimmedData
     }
 
-    private static func isBlankLinePrefixByte(_ byte: UInt8) -> Bool {
+    nonisolated private static func isBlankLinePrefixByte(_ byte: UInt8) -> Bool {
         switch byte {
         case 0x00..<0x09, 0x0B..<0x1B, 0x20:
             return true
@@ -779,7 +779,7 @@ final class PTYSession: ObservableObject {
         }
     }
 
-    private static func terminalControlEndIndex(in data: Data, from escapeIndex: Data.Index) -> Data.Index? {
+    nonisolated private static func terminalControlEndIndex(in data: Data, from escapeIndex: Data.Index) -> Data.Index? {
         let firstIndex = data.index(after: escapeIndex)
         guard firstIndex < data.endIndex else { return nil }
 

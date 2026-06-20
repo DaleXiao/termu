@@ -340,12 +340,8 @@ struct TerminalTextView: NSViewRepresentable {
         func feedTerminalData(_ data: Data) {
             guard terminalView != nil else { return }
 
-            guard isReadyForTerminalData else {
-                pendingTerminalData.append(data)
-                return
-            }
-
             pendingTerminalData.append(data)
+            guard isActive, isReadyForTerminalData else { return }
             schedulePendingTerminalDataFlush()
         }
 
