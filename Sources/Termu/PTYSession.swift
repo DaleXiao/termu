@@ -515,20 +515,11 @@ final class PTYSession: ObservableObject {
         )
         let timer = DispatchSource.makeTimerSource(queue: queue)
         timer.schedule(deadline: .now(), repeating: .milliseconds(1_200), leeway: .milliseconds(300))
-        timer.setEventHandler { [weak self] in
-            let isActive = Self.hasKnownAIProcessInForeground(masterFD: monitoredFD)
-
-            Task { @MainActor in
-                guard let self,
-                      self.masterFD == monitoredFD,
-                      self.childPID == monitoredChildPID,
-                      self.isRunning else {
-                    return
-                }
-
-                self.setAIActivityActive(isActive)
-            }
-        }
+        timer.setEventHandler(handler: Self.aiActivityMonitorHandler(
+            masterFD: monitoredFD,
+            childPID: monitoredChildPID,
+            session: self
+        ))
 
         aiActivityMonitor = timer
         timer.resume()
@@ -543,6 +534,28 @@ final class PTYSession: ObservableObject {
     private func setAIActivityActive(_ isActive: Bool) {
         guard isAIActivityActive != isActive else { return }
         isAIActivityActive = isActive
+    }
+
+    nonisolated private static func aiActivityMonitorHandler(
+        masterFD: Int32,
+        childPID: pid_t,
+        session: PTYSession
+    ) -> () -> Void {
+        {
+            [weak session] in
+            let isActive = hasKnownAIProcessInForeground(masterFD: masterFD)
+
+            Task { @MainActor in
+                guard let session,
+                      session.masterFD == masterFD,
+                      session.childPID == childPID,
+                      session.isRunning else {
+                    return
+                }
+
+                session.setAIActivityActive(isActive)
+            }
+        }
     }
 
     nonisolated private static func hasKnownAIProcessInForeground(masterFD: Int32) -> Bool {
