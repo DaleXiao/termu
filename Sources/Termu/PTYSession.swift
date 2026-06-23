@@ -163,11 +163,12 @@ final class PTYSession: ObservableObject {
     private var terminalSize: TerminalSize?
     private var pendingLaunch: LaunchConfiguration?
     private var aiActivityMonitor: DispatchSourceTimer?
-    private var pendingAIActivityActivation: DispatchWorkItem?
+    private var aiActivityDeactivation: DispatchWorkItem?
     private var supportsAIActivityMonitoring = false
     private var wantsAIActivityMonitoring = false
     private var hasKnownAIProcessForeground = false
-    private static let aiActivityQuietActivationDelay: TimeInterval = 0.9
+    private var isAwaitingAIModelOutput = false
+    private static let aiActivityOutputIdleDelay: TimeInterval = 1.1
 
     var isRunning: Bool {
         state == .connecting || state == .running
@@ -215,7 +216,8 @@ final class PTYSession: ObservableObject {
         pendingLaunch = nil
         supportsAIActivityMonitoring = false
         hasKnownAIProcessForeground = false
-        cancelPendingAIActivityActivation()
+        isAwaitingAIModelOutput = false
+        cancelAIActivityDeactivation()
         setAIActivityActive(false)
         hostID = host.id
         resetTerminal(initialText: "")
@@ -240,7 +242,8 @@ final class PTYSession: ObservableObject {
         terminalSize = nil
         supportsAIActivityMonitoring = false
         hasKnownAIProcessForeground = false
-        cancelPendingAIActivityActivation()
+        isAwaitingAIModelOutput = false
+        cancelAIActivityDeactivation()
         setAIActivityActive(false)
         passwordFillStatus = savedPassword.isEmpty ? .none : .waiting
         state = .connecting
@@ -501,7 +504,8 @@ final class PTYSession: ObservableObject {
             childPID = -1
         }
         hasKnownAIProcessForeground = false
-        cancelPendingAIActivityActivation()
+        isAwaitingAIModelOutput = false
+        cancelAIActivityDeactivation()
         supportsAIActivityMonitoring = false
     }
 
@@ -542,7 +546,8 @@ final class PTYSession: ObservableObject {
         aiActivityMonitor?.cancel()
         aiActivityMonitor = nil
         hasKnownAIProcessForeground = false
-        cancelPendingAIActivityActivation()
+        isAwaitingAIModelOutput = false
+        cancelAIActivityDeactivation()
         setAIActivityActive(false)
     }
 
@@ -576,7 +581,8 @@ final class PTYSession: ObservableObject {
     private func setKnownAIProcessForeground(_ isForeground: Bool) {
         hasKnownAIProcessForeground = isForeground
         if !isForeground {
-            cancelPendingAIActivityActivation()
+            isAwaitingAIModelOutput = false
+            cancelAIActivityDeactivation()
             setAIActivityActive(false)
         }
     }
@@ -585,45 +591,46 @@ final class PTYSession: ObservableObject {
         guard supportsAIActivityMonitoring, hasKnownAIProcessForeground else { return }
         guard data.contains(0x0A) || data.contains(0x0D) else { return }
 
-        scheduleAIActivityActivationAfterQuietPeriod()
+        isAwaitingAIModelOutput = true
+        cancelAIActivityDeactivation()
+        setAIActivityActive(false)
     }
 
-    private func scheduleAIActivityActivationAfterQuietPeriod() {
-        pendingAIActivityActivation?.cancel()
+    private func scheduleAIActivityDeactivationAfterOutputIdle() {
+        aiActivityDeactivation?.cancel()
 
         let workItem = DispatchWorkItem { [weak self] in
-            guard let self,
-                  self.supportsAIActivityMonitoring,
-                  self.hasKnownAIProcessForeground,
-                  self.isRunning else {
-                return
-            }
-
-            self.setAIActivityActive(true)
-            self.pendingAIActivityActivation = nil
+            self?.setAIActivityActive(false)
+            self?.aiActivityDeactivation = nil
         }
-        pendingAIActivityActivation = workItem
+        aiActivityDeactivation = workItem
         DispatchQueue.main.asyncAfter(
-            deadline: .now() + Self.aiActivityQuietActivationDelay,
+            deadline: .now() + Self.aiActivityOutputIdleDelay,
             execute: workItem
         )
     }
 
-    private func cancelPendingAIActivityActivation() {
-        pendingAIActivityActivation?.cancel()
-        pendingAIActivityActivation = nil
+    private func cancelAIActivityDeactivation() {
+        aiActivityDeactivation?.cancel()
+        aiActivityDeactivation = nil
     }
 
     private func updateAIActivityState(from visibleText: String) {
         guard supportsAIActivityMonitoring else { return }
         guard visibleText.unicodeScalars.contains(where: { !$0.properties.isWhitespace }) else { return }
 
-        if Self.containsAIThinkingIndicator(in: visibleText) {
-            cancelPendingAIActivityActivation()
-            setAIActivityActive(true)
-        } else {
-            cancelPendingAIActivityActivation()
+        let containsAIStatus = Self.containsAIThinkingIndicator(in: visibleText)
+        guard containsAIStatus || hasKnownAIProcessForeground else {
+            isAwaitingAIModelOutput = false
+            cancelAIActivityDeactivation()
             setAIActivityActive(false)
+            return
+        }
+
+        if containsAIStatus || isAwaitingAIModelOutput || isAIActivityActive {
+            isAwaitingAIModelOutput = false
+            setAIActivityActive(true)
+            scheduleAIActivityDeactivationAfterOutputIdle()
         }
     }
 

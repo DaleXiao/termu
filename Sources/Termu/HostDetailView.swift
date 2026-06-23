@@ -469,24 +469,40 @@ private struct AIActivityIndicatorLine: View {
     var body: some View {
         Group {
             if isActive {
-                TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { context in
-                    let phase = (sin(context.date.timeIntervalSinceReferenceDate * .pi / 1.15) + 1) / 2
-                    let opacity = 0.35 + phase * 0.55
+                TimelineView(.animation(minimumInterval: 1.0 / 60.0)) { context in
+                    GeometryReader { geometry in
+                        let width = max(geometry.size.width, 1)
+                        let sweepWidth = min(max(width * 0.22, 120), 360)
+                        let duration = 1.35
+                        let progress = context.date.timeIntervalSinceReferenceDate
+                            .truncatingRemainder(dividingBy: duration) / duration
+                        let xOffset = -sweepWidth + (width + sweepWidth * 2) * progress
 
-                    Rectangle()
-                        .fill(
-                            LinearGradient(
-                                colors: [
-                                    Color.accentColor.opacity(0.05),
-                                    Color.accentColor.opacity(opacity),
-                                    Color.accentColor.opacity(0.05)
-                                ],
-                                startPoint: .leading,
-                                endPoint: .trailing
-                            )
-                        )
-                        .frame(height: 2)
-                        .shadow(color: Color.accentColor.opacity(0.22 + phase * 0.28), radius: 4)
+                        ZStack(alignment: .leading) {
+                            Rectangle()
+                                .fill(Color.accentColor.opacity(0.12))
+                                .frame(height: 1)
+
+                            Rectangle()
+                                .fill(
+                                    LinearGradient(
+                                        colors: [
+                                            Color.accentColor.opacity(0),
+                                            Color.accentColor.opacity(0.95),
+                                            Color.accentColor.opacity(0)
+                                        ],
+                                        startPoint: .leading,
+                                        endPoint: .trailing
+                                    )
+                                )
+                                .frame(width: sweepWidth, height: 2)
+                                .offset(x: xOffset)
+                                .shadow(color: Color.accentColor.opacity(0.35), radius: 4)
+                        }
+                        .frame(width: width, height: 4, alignment: .leading)
+                        .clipped()
+                    }
+                    .frame(height: 4)
                 }
                 .transition(.opacity)
             }
