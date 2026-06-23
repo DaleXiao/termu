@@ -76,4 +76,14 @@ final class PTYSessionTerminalTextTests: XCTestCase {
             arguments: ["node", "/Users/example/project/server.js"]
         ))
     }
+
+    func testAIThinkingIndicatorRecognizesClaudeStatusLine() {
+        XCTAssertTrue(PTYSession.containsAIThinkingIndicator(in: "✻ Thinking…"))
+        XCTAssertTrue(PTYSession.containsAIThinkingIndicator(in: "Thinking for 3s"))
+    }
+
+    func testAIThinkingIndicatorIgnoresOrdinaryOutput() {
+        XCTAssertFalse(PTYSession.containsAIThinkingIndicator(in: "Welcome to Claude Code"))
+        XCTAssertFalse(PTYSession.containsAIThinkingIndicator(in: "I think this should be a normal answer."))
+    }
 }

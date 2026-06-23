@@ -441,6 +441,7 @@ final class PTYSession: ObservableObject {
                 self.feedTerminalData(self.trimInitialTerminalLineBreaks(from: terminalData))
                 self.append(displayText)
                 self.handleAuthenticationFailure(in: visibleText)
+                self.updateAIActivityState(from: visibleText)
             }
         }
     }
@@ -543,7 +544,7 @@ final class PTYSession: ObservableObject {
     ) -> () -> Void {
         {
             [weak session] in
-            let isActive = hasKnownAIProcessInForeground(masterFD: masterFD)
+            let hasKnownAIProcess = hasKnownAIProcessInForeground(masterFD: masterFD)
 
             Task { @MainActor in
                 guard let session,
@@ -553,8 +554,25 @@ final class PTYSession: ObservableObject {
                     return
                 }
 
-                session.setAIActivityActive(isActive)
+                session.updateKnownAIProcessForeground(hasKnownAIProcess)
             }
+        }
+    }
+
+    private func updateKnownAIProcessForeground(_ isForeground: Bool) {
+        if !isForeground {
+            setAIActivityActive(false)
+        }
+    }
+
+    private func updateAIActivityState(from visibleText: String) {
+        guard supportsAIActivityMonitoring else { return }
+        guard visibleText.unicodeScalars.contains(where: { !$0.properties.isWhitespace }) else { return }
+
+        if Self.containsAIThinkingIndicator(in: visibleText) {
+            setAIActivityActive(true)
+        } else if isAIActivityActive {
+            setAIActivityActive(false)
         }
     }
 
@@ -693,6 +711,20 @@ final class PTYSession: ObservableObject {
         }
 
         return value
+    }
+
+    nonisolated static func containsAIThinkingIndicator(in text: String) -> Bool {
+        text.components(separatedBy: .newlines).contains { line in
+            let normalizedLine = line
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+            guard normalizedLine.count <= 120 else { return false }
+            guard normalizedLine.contains("thinking") else { return false }
+
+            return !normalizedLine.hasPrefix("i think")
+                && !normalizedLine.hasPrefix("i'm thinking")
+                && !normalizedLine.hasPrefix("i’m thinking")
+        }
     }
 
     private func append(_ text: String) {
