@@ -163,8 +163,11 @@ final class PTYSession: ObservableObject {
     private var terminalSize: TerminalSize?
     private var pendingLaunch: LaunchConfiguration?
     private var aiActivityMonitor: DispatchSourceTimer?
+    private var pendingAIActivityActivation: DispatchWorkItem?
     private var supportsAIActivityMonitoring = false
     private var wantsAIActivityMonitoring = false
+    private var hasKnownAIProcessForeground = false
+    private static let aiActivityQuietActivationDelay: TimeInterval = 0.9
 
     var isRunning: Bool {
         state == .connecting || state == .running
@@ -211,6 +214,8 @@ final class PTYSession: ObservableObject {
         initialTerminalPrefixBuffer.removeAll()
         pendingLaunch = nil
         supportsAIActivityMonitoring = false
+        hasKnownAIProcessForeground = false
+        cancelPendingAIActivityActivation()
         setAIActivityActive(false)
         hostID = host.id
         resetTerminal(initialText: "")
@@ -234,6 +239,8 @@ final class PTYSession: ObservableObject {
         initialTerminalPrefixBuffer.removeAll()
         terminalSize = nil
         supportsAIActivityMonitoring = false
+        hasKnownAIProcessForeground = false
+        cancelPendingAIActivityActivation()
         setAIActivityActive(false)
         passwordFillStatus = savedPassword.isEmpty ? .none : .waiting
         state = .connecting
@@ -295,11 +302,14 @@ final class PTYSession: ObservableObject {
 
     func send(_ text: String) {
         guard let data = text.data(using: .utf8) else { return }
+        recordTerminalInput(data)
         writeToPTY(data)
     }
 
     func send(_ bytes: ArraySlice<UInt8>) {
-        writeToPTY(Data(bytes))
+        let data = Data(bytes)
+        recordTerminalInput(data)
+        writeToPTY(data)
     }
 
     func resize(cols: Int, rows: Int) {
@@ -490,6 +500,8 @@ final class PTYSession: ObservableObject {
             waitpid(childPID, &status, WNOHANG)
             childPID = -1
         }
+        hasKnownAIProcessForeground = false
+        cancelPendingAIActivityActivation()
         supportsAIActivityMonitoring = false
     }
 
@@ -529,6 +541,8 @@ final class PTYSession: ObservableObject {
     private func stopAIActivityMonitor() {
         aiActivityMonitor?.cancel()
         aiActivityMonitor = nil
+        hasKnownAIProcessForeground = false
+        cancelPendingAIActivityActivation()
         setAIActivityActive(false)
     }
 
@@ -554,15 +568,50 @@ final class PTYSession: ObservableObject {
                     return
                 }
 
-                session.updateKnownAIProcessForeground(hasKnownAIProcess)
+                session.setKnownAIProcessForeground(hasKnownAIProcess)
             }
         }
     }
 
-    private func updateKnownAIProcessForeground(_ isForeground: Bool) {
+    private func setKnownAIProcessForeground(_ isForeground: Bool) {
+        hasKnownAIProcessForeground = isForeground
         if !isForeground {
+            cancelPendingAIActivityActivation()
             setAIActivityActive(false)
         }
+    }
+
+    private func recordTerminalInput(_ data: Data) {
+        guard supportsAIActivityMonitoring, hasKnownAIProcessForeground else { return }
+        guard data.contains(0x0A) || data.contains(0x0D) else { return }
+
+        scheduleAIActivityActivationAfterQuietPeriod()
+    }
+
+    private func scheduleAIActivityActivationAfterQuietPeriod() {
+        pendingAIActivityActivation?.cancel()
+
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self,
+                  self.supportsAIActivityMonitoring,
+                  self.hasKnownAIProcessForeground,
+                  self.isRunning else {
+                return
+            }
+
+            self.setAIActivityActive(true)
+            self.pendingAIActivityActivation = nil
+        }
+        pendingAIActivityActivation = workItem
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + Self.aiActivityQuietActivationDelay,
+            execute: workItem
+        )
+    }
+
+    private func cancelPendingAIActivityActivation() {
+        pendingAIActivityActivation?.cancel()
+        pendingAIActivityActivation = nil
     }
 
     private func updateAIActivityState(from visibleText: String) {
@@ -570,8 +619,10 @@ final class PTYSession: ObservableObject {
         guard visibleText.unicodeScalars.contains(where: { !$0.properties.isWhitespace }) else { return }
 
         if Self.containsAIThinkingIndicator(in: visibleText) {
+            cancelPendingAIActivityActivation()
             setAIActivityActive(true)
-        } else if isAIActivityActive {
+        } else {
+            cancelPendingAIActivityActivation()
             setAIActivityActive(false)
         }
     }
@@ -719,11 +770,14 @@ final class PTYSession: ObservableObject {
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 .lowercased()
             guard normalizedLine.count <= 120 else { return false }
-            guard normalizedLine.contains("thinking") else { return false }
+            if normalizedLine.contains("thinking") {
+                return !normalizedLine.hasPrefix("i think")
+                    && !normalizedLine.hasPrefix("i'm thinking")
+                    && !normalizedLine.hasPrefix("i’m thinking")
+            }
 
-            return !normalizedLine.hasPrefix("i think")
-                && !normalizedLine.hasPrefix("i'm thinking")
-                && !normalizedLine.hasPrefix("i’m thinking")
+            let statusPrefixes = ["✻", "✽", "✶", "✢", "✳", "✹", "⏺"]
+            return statusPrefixes.contains { normalizedLine.hasPrefix($0) }
         }
     }
 

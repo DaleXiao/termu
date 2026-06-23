@@ -80,6 +80,7 @@ final class PTYSessionTerminalTextTests: XCTestCase {
     func testAIThinkingIndicatorRecognizesClaudeStatusLine() {
         XCTAssertTrue(PTYSession.containsAIThinkingIndicator(in: "✻ Thinking…"))
         XCTAssertTrue(PTYSession.containsAIThinkingIndicator(in: "Thinking for 3s"))
+        XCTAssertTrue(PTYSession.containsAIThinkingIndicator(in: "✶ Crunching… (esc to interrupt)"))
     }
 
     func testAIThinkingIndicatorIgnoresOrdinaryOutput() {
