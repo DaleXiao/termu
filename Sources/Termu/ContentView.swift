@@ -635,6 +635,13 @@ private struct SettingsPanel: View {
         )
     }
 
+    private var showAIActivityIndicator: Binding<Bool> {
+        Binding(
+            get: { store.configuration.showAIActivityIndicator },
+            set: { store.setShowAIActivityIndicator($0) }
+        )
+    }
+
     private var confirmBeforeStoppingLocalTerminalTab: Binding<Bool> {
         Binding(
             get: { store.configuration.confirmBeforeStoppingLocalTerminalTab },
@@ -668,6 +675,8 @@ private struct SettingsPanel: View {
                     .fontWeight(.medium)
 
                 ThemeModeToggle(selection: terminalTheme)
+
+                Toggle("Show AI activity indicator", isOn: showAIActivityIndicator)
             }
 
             Divider()

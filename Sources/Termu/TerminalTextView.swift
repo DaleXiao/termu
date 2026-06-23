@@ -286,6 +286,7 @@ struct TerminalTextView: NSViewRepresentable {
                     isReadyForTerminalData = false
                 }
                 pendingTerminalData.removeAll()
+                self.session?.setAIActivityMonitoringVisible(false)
                 self.session?.detachTerminalRenderer(self)
                 self.session = session
                 session.attachTerminalRenderer(self, initialText: initialText)
@@ -293,6 +294,7 @@ struct TerminalTextView: NSViewRepresentable {
 
             let becameActive = isActive && !wasActive
             self.isActive = isActive
+            session.setAIActivityMonitoringVisible(isActive)
 
             if becameActive {
                 shouldRequestFocus = true
@@ -315,6 +317,7 @@ struct TerminalTextView: NSViewRepresentable {
             pendingTerminalDataWorkItem = nil
             cancelPendingFocusRequests()
             pendingTerminalData.removeAll()
+            session?.setAIActivityMonitoringVisible(false)
             session?.detachTerminalRenderer(self)
             session = nil
             terminalView = nil

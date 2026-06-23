@@ -165,6 +165,13 @@ final class ConfigurationStore: ObservableObject {
         markEdited()
     }
 
+    func setShowAIActivityIndicator(_ shouldShow: Bool) {
+        guard configuration.showAIActivityIndicator != shouldShow else { return }
+
+        configuration.showAIActivityIndicator = shouldShow
+        markEdited()
+    }
+
     func setConfirmBeforeDisconnectingSSHHost(_ shouldConfirm: Bool) {
         guard configuration.confirmBeforeDisconnectingSSHHost != shouldConfirm else { return }
 

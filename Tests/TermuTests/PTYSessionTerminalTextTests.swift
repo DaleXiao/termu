@@ -39,4 +39,41 @@ final class PTYSessionTerminalTextTests: XCTestCase {
 
         XCTAssertEqual(PTYSession.trimmingLeadingLineBreaksPreservingTerminalControls(from: data), data)
     }
+
+    func testAIActivityMatcherRecognizesKnownCommandNames() {
+        XCTAssertTrue(PTYSession.isKnownAIActivityProcess(
+            processName: "claude",
+            executablePath: "/opt/homebrew/bin/claude",
+            arguments: ["claude"]
+        ))
+        XCTAssertTrue(PTYSession.isKnownAIActivityProcess(
+            processName: "codex",
+            executablePath: "/Users/example/.local/bin/codex",
+            arguments: ["codex"]
+        ))
+    }
+
+    func testAIActivityMatcherRecognizesNodeWrappedClaudeCode() {
+        XCTAssertTrue(PTYSession.isKnownAIActivityProcess(
+            processName: "node",
+            executablePath: "/opt/homebrew/bin/node",
+            arguments: [
+                "node",
+                "/opt/homebrew/lib/node_modules/@anthropic-ai/claude-code/cli.js"
+            ]
+        ))
+    }
+
+    func testAIActivityMatcherIgnoresOrdinaryShellAndNodeProcesses() {
+        XCTAssertFalse(PTYSession.isKnownAIActivityProcess(
+            processName: "zsh",
+            executablePath: "/bin/zsh",
+            arguments: ["-zsh"]
+        ))
+        XCTAssertFalse(PTYSession.isKnownAIActivityProcess(
+            processName: "node",
+            executablePath: "/opt/homebrew/bin/node",
+            arguments: ["node", "/Users/example/project/server.js"]
+        ))
+    }
 }

@@ -227,7 +227,10 @@ final class LocalTerminalWorkspaceStore: ObservableObject {
     }
 
     private func observe(_ tab: LocalTerminalTab) {
-        sessionObservers[tab.id] = tab.session.$state.removeDuplicates().sink { [weak self] _ in
+        let stateUpdates = tab.session.$state.removeDuplicates().map { _ in () }
+        let aiActivityUpdates = tab.session.$isAIActivityActive.removeDuplicates().map { _ in () }
+
+        sessionObservers[tab.id] = Publishers.Merge(stateUpdates, aiActivityUpdates).sink { [weak self] _ in
             Task { @MainActor in
                 self?.objectWillChange.send()
             }

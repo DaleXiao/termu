@@ -5,6 +5,7 @@ struct TermuConfiguration: Codable, Equatable {
     var hosts: [HostRecord] = []
     var selectedHostID: UUID?
     var terminalTheme: TerminalTheme = .dark
+    var showAIActivityIndicator: Bool = true
     var confirmBeforeDisconnectingSSHHost: Bool = true
     var confirmBeforeStoppingLocalTerminalTab: Bool = true
     var confirmBeforeClosingLocalTerminalTab: Bool = true
@@ -15,6 +16,7 @@ struct TermuConfiguration: Codable, Equatable {
         case hosts
         case selectedHostID
         case terminalTheme
+        case showAIActivityIndicator
         case confirmBeforeDisconnectingSSHHost
         case confirmBeforeStoppingLocalTerminalTab
         case confirmBeforeClosingLocalTerminalTab
@@ -30,6 +32,7 @@ struct TermuConfiguration: Codable, Equatable {
         hosts = try container.decodeIfPresent([HostRecord].self, forKey: .hosts) ?? []
         selectedHostID = try container.decodeIfPresent(UUID.self, forKey: .selectedHostID)
         terminalTheme = try container.decodeIfPresent(TerminalTheme.self, forKey: .terminalTheme) ?? .dark
+        showAIActivityIndicator = try container.decodeIfPresent(Bool.self, forKey: .showAIActivityIndicator) ?? true
         confirmBeforeDisconnectingSSHHost = try container.decodeIfPresent(Bool.self, forKey: .confirmBeforeDisconnectingSSHHost) ?? true
         confirmBeforeStoppingLocalTerminalTab = try container.decodeIfPresent(Bool.self, forKey: .confirmBeforeStoppingLocalTerminalTab) ?? true
         confirmBeforeClosingLocalTerminalTab = try container.decodeIfPresent(Bool.self, forKey: .confirmBeforeClosingLocalTerminalTab) ?? true

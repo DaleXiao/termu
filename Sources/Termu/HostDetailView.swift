@@ -105,6 +105,11 @@ private struct SessionView: View {
                 .id(host.id)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
+            .overlay(alignment: .top) {
+                AIActivityIndicatorLine(
+                    isActive: store.configuration.showAIActivityIndicator && session.isAIActivityActive
+                )
+            }
         } else {
             WorkspaceIdleView()
         }
@@ -418,6 +423,13 @@ private struct LocalTerminalWorkspaceView: View {
                 TerminalTabIdleView()
             }
         }
+        .overlay(alignment: .top) {
+            AIActivityIndicatorLine(isActive: shouldShowAIActivityIndicator)
+        }
+    }
+
+    private var shouldShowAIActivityIndicator: Bool {
+        store.configuration.showAIActivityIndicator && (selectedSession?.isAIActivityActive ?? false)
     }
 
     private var statusIcon: String {
@@ -448,6 +460,40 @@ private struct LocalTerminalWorkspaceView: View {
         case .failed:
             return .red
         }
+    }
+}
+
+private struct AIActivityIndicatorLine: View {
+    let isActive: Bool
+
+    var body: some View {
+        Group {
+            if isActive {
+                TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { context in
+                    let phase = (sin(context.date.timeIntervalSinceReferenceDate * .pi / 1.15) + 1) / 2
+                    let opacity = 0.35 + phase * 0.55
+
+                    Rectangle()
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    Color.accentColor.opacity(0.05),
+                                    Color.accentColor.opacity(opacity),
+                                    Color.accentColor.opacity(0.05)
+                                ],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
+                        .frame(height: 2)
+                        .shadow(color: Color.accentColor.opacity(0.22 + phase * 0.28), radius: 4)
+                }
+                .transition(.opacity)
+            }
+        }
+        .frame(height: 4)
+        .allowsHitTesting(false)
+        .animation(.easeOut(duration: 0.18), value: isActive)
     }
 }
 

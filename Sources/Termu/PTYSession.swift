@@ -21,6 +21,13 @@ final class PTYSession: ObservableObject {
         let processName: String?
         let environment: [String: String]
         let currentDirectory: String?
+        let monitorsAIActivity: Bool
+    }
+
+    private struct ProcessIdentity {
+        let name: String
+        let executablePath: String?
+        let arguments: [String]
     }
 
     private struct TerminalReplayBuffer {
@@ -135,6 +142,7 @@ final class PTYSession: ObservableObject {
     @Published private(set) var state: State = .idle
     @Published private(set) var passwordFillStatus: PasswordFillStatus = .none
     @Published private(set) var hostID: HostRecord.ID?
+    @Published private(set) var isAIActivityActive = false
 
     private weak var terminalRenderer: PTYSessionTerminalRenderer?
     private var terminalInitialText = ""
@@ -154,6 +162,9 @@ final class PTYSession: ObservableObject {
     private var initialTerminalPrefixBuffer = Data()
     private var terminalSize: TerminalSize?
     private var pendingLaunch: LaunchConfiguration?
+    private var aiActivityMonitor: DispatchSourceTimer?
+    private var supportsAIActivityMonitoring = false
+    private var wantsAIActivityMonitoring = false
 
     var isRunning: Bool {
         state == .connecting || state == .running
@@ -171,6 +182,13 @@ final class PTYSession: ObservableObject {
         if terminalRenderer === renderer {
             terminalRenderer = nil
         }
+    }
+
+    func setAIActivityMonitoringVisible(_ isVisible: Bool) {
+        guard wantsAIActivityMonitoring != isVisible else { return }
+
+        wantsAIActivityMonitoring = isVisible
+        updateAIActivityMonitor()
     }
 
     func prepare(host: HostRecord) {
@@ -192,6 +210,8 @@ final class PTYSession: ObservableObject {
         shouldTrimInitialTerminalLineBreaks = false
         initialTerminalPrefixBuffer.removeAll()
         pendingLaunch = nil
+        supportsAIActivityMonitoring = false
+        setAIActivityActive(false)
         hostID = host.id
         resetTerminal(initialText: "")
     }
@@ -213,6 +233,8 @@ final class PTYSession: ObservableObject {
         shouldTrimInitialTerminalLineBreaks = true
         initialTerminalPrefixBuffer.removeAll()
         terminalSize = nil
+        supportsAIActivityMonitoring = false
+        setAIActivityActive(false)
         passwordFillStatus = savedPassword.isEmpty ? .none : .waiting
         state = .connecting
 
@@ -224,7 +246,8 @@ final class PTYSession: ObservableObject {
                 arguments: host.sshArguments(automatingSavedPassword: !savedPassword.isEmpty),
                 processName: nil,
                 environment: [:],
-                currentDirectory: nil
+                currentDirectory: nil,
+                monitorsAIActivity: false
             )
         case .local:
             let shellName = (host.localShellPath as NSString).lastPathComponent
@@ -233,7 +256,8 @@ final class PTYSession: ObservableObject {
                 arguments: [],
                 processName: "-\(shellName)",
                 environment: Self.localTerminalEnvironment,
-                currentDirectory: host.localWorkingDirectoryPath
+                currentDirectory: host.localWorkingDirectoryPath,
+                monitorsAIActivity: true
             )
         }
 
@@ -387,6 +411,8 @@ final class PTYSession: ObservableObject {
         masterFD = fileDescriptor
         childPID = pid
         state = .running
+        supportsAIActivityMonitoring = configuration.monitorsAIActivity
+        updateAIActivityMonitor()
 
         let handle = FileHandle(fileDescriptor: fileDescriptor, closeOnDealloc: true)
         masterFileHandle = handle
@@ -448,6 +474,8 @@ final class PTYSession: ObservableObject {
     }
 
     private func cleanupProcess() {
+        stopAIActivityMonitor()
+
         if let masterFileHandle {
             masterFileHandle.readabilityHandler = nil
             try? masterFileHandle.close()
@@ -461,6 +489,197 @@ final class PTYSession: ObservableObject {
             waitpid(childPID, &status, WNOHANG)
             childPID = -1
         }
+        supportsAIActivityMonitoring = false
+    }
+
+    private func updateAIActivityMonitor() {
+        let shouldMonitor = supportsAIActivityMonitoring && wantsAIActivityMonitoring && isRunning
+        if shouldMonitor {
+            startAIActivityMonitorIfNeeded()
+        } else {
+            stopAIActivityMonitor()
+        }
+    }
+
+    private func startAIActivityMonitorIfNeeded() {
+        guard aiActivityMonitor == nil else { return }
+        stopAIActivityMonitor()
+
+        guard masterFD >= 0, childPID > 0 else { return }
+
+        let monitoredFD = masterFD
+        let monitoredChildPID = childPID
+        let queue = DispatchQueue(
+            label: "com.dingxiao.termu.ai-activity.\(monitoredChildPID)",
+            qos: .utility
+        )
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        timer.schedule(deadline: .now(), repeating: .milliseconds(1_200), leeway: .milliseconds(300))
+        timer.setEventHandler { [weak self] in
+            let isActive = Self.hasKnownAIProcessInForeground(masterFD: monitoredFD)
+
+            Task { @MainActor in
+                guard let self,
+                      self.masterFD == monitoredFD,
+                      self.childPID == monitoredChildPID,
+                      self.isRunning else {
+                    return
+                }
+
+                self.setAIActivityActive(isActive)
+            }
+        }
+
+        aiActivityMonitor = timer
+        timer.resume()
+    }
+
+    private func stopAIActivityMonitor() {
+        aiActivityMonitor?.cancel()
+        aiActivityMonitor = nil
+        setAIActivityActive(false)
+    }
+
+    private func setAIActivityActive(_ isActive: Bool) {
+        guard isAIActivityActive != isActive else { return }
+        isAIActivityActive = isActive
+    }
+
+    nonisolated private static func hasKnownAIProcessInForeground(masterFD: Int32) -> Bool {
+        let processGroupID = tcgetpgrp(masterFD)
+        guard processGroupID > 0 else { return false }
+
+        return processIdentities(inProcessGroup: processGroupID).contains { identity in
+            isKnownAIActivityProcess(
+                processName: identity.name,
+                executablePath: identity.executablePath,
+                arguments: identity.arguments
+            )
+        }
+    }
+
+    nonisolated private static func processIdentities(inProcessGroup processGroupID: pid_t) -> [ProcessIdentity] {
+        let pidByteCount = proc_listpids(UInt32(PROC_PGRP_ONLY), UInt32(processGroupID), nil, 0)
+        guard pidByteCount > 0 else { return [] }
+
+        var pids = [pid_t](repeating: 0, count: Int(pidByteCount) / MemoryLayout<pid_t>.size)
+        let actualByteCount = pids.withUnsafeMutableBufferPointer { buffer in
+            proc_listpids(
+                UInt32(PROC_PGRP_ONLY),
+                UInt32(processGroupID),
+                buffer.baseAddress,
+                Int32(buffer.count * MemoryLayout<pid_t>.size)
+            )
+        }
+        guard actualByteCount > 0 else { return [] }
+
+        return pids.prefix(Int(actualByteCount) / MemoryLayout<pid_t>.size).compactMap { pid in
+            guard pid > 0 else { return nil }
+
+            var info = proc_bsdinfo()
+            let infoByteCount = withUnsafeMutablePointer(to: &info) { pointer in
+                proc_pidinfo(
+                    pid,
+                    PROC_PIDTBSDINFO,
+                    0,
+                    pointer,
+                    Int32(MemoryLayout<proc_bsdinfo>.size)
+                )
+            }
+            guard infoByteCount == Int32(MemoryLayout<proc_bsdinfo>.size),
+                  info.pbi_pgid == processGroupID else {
+                return nil
+            }
+
+            return ProcessIdentity(
+                name: processName(from: info),
+                executablePath: executablePath(for: pid),
+                arguments: commandArguments(for: pid)
+            )
+        }
+    }
+
+    nonisolated private static func processName(from info: proc_bsdinfo) -> String {
+        var name = info.pbi_name
+        return withUnsafeBytes(of: &name) { rawBuffer in
+            let bytes = rawBuffer.prefix { $0 != 0 }
+            return String(bytes: bytes, encoding: .utf8) ?? ""
+        }
+    }
+
+    nonisolated private static func executablePath(for pid: pid_t) -> String? {
+        var pathBuffer = [CChar](repeating: 0, count: 4_096)
+        let pathLength = pathBuffer.withUnsafeMutableBufferPointer { buffer in
+            proc_pidpath(pid, buffer.baseAddress, UInt32(buffer.count))
+        }
+
+        guard pathLength > 0 else { return nil }
+        let bytes = pathBuffer
+            .prefix(min(Int(pathLength), pathBuffer.count))
+            .prefix { $0 != 0 }
+            .map { UInt8(bitPattern: $0) }
+        return String(decoding: bytes, as: UTF8.self)
+    }
+
+    nonisolated private static func commandArguments(for pid: pid_t) -> [String] {
+        var mib = [CTL_KERN, KERN_PROCARGS2, pid]
+        var size = 0
+        guard sysctl(&mib, u_int(mib.count), nil, &size, nil, 0) == 0, size > 0 else {
+            return []
+        }
+
+        var buffer = [UInt8](repeating: 0, count: size)
+        guard sysctl(&mib, u_int(mib.count), &buffer, &size, nil, 0) == 0 else {
+            return []
+        }
+
+        return buffer
+            .dropFirst(MemoryLayout<Int32>.size)
+            .prefix(max(size - MemoryLayout<Int32>.size, 0))
+            .split(separator: 0, omittingEmptySubsequences: true)
+            .compactMap { String(bytes: $0, encoding: .utf8) }
+    }
+
+    nonisolated static func isKnownAIActivityProcess(
+        processName: String,
+        executablePath: String?,
+        arguments: [String]
+    ) -> Bool {
+        let identifiers = [processName, executablePath].compactMap { $0 } + arguments.prefix(2)
+        return identifiers.contains(where: isKnownAICommandIdentifier)
+    }
+
+    nonisolated private static func isKnownAICommandIdentifier(_ identifier: String) -> Bool {
+        let trimmedIdentifier = identifier
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+            .lowercased()
+        guard !trimmedIdentifier.isEmpty else { return false }
+
+        let knownCommands: Set<String> = [
+            "aider",
+            "claude",
+            "claude-code",
+            "codex",
+            "gemini",
+            "opencode"
+        ]
+        let components = trimmedIdentifier
+            .components(separatedBy: CharacterSet(charactersIn: "/\\:"))
+            .filter { !$0.isEmpty }
+        let candidates = ([trimmedIdentifier] + components).flatMap { component in
+            [component, strippingKnownExecutableExtension(from: component)]
+        }
+
+        return candidates.contains { knownCommands.contains($0) }
+    }
+
+    nonisolated private static func strippingKnownExecutableExtension(from value: String) -> String {
+        for suffix in [".js", ".mjs", ".cjs"] where value.hasSuffix(suffix) {
+            return String(value.dropLast(suffix.count))
+        }
+
+        return value
     }
 
     private func append(_ text: String) {
