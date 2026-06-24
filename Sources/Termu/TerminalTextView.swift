@@ -395,6 +395,7 @@ struct TerminalTextView: NSViewRepresentable {
             let shouldResizeImmediately = lastTerminalSize == nil
             lastTerminalSize = (newCols, newRows)
 
+            redrawFullTerminal(source)
             pendingResizeWorkItem?.cancel()
             if shouldResizeImmediately {
                 session?.resize(cols: newCols, rows: newRows)
