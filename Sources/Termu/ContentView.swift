@@ -212,6 +212,7 @@ private struct HostSidebarView: View {
             }
 
             Divider()
+                .padding(.trailing, 1)
 
             SidebarSettingsButton(isShowingSettings: $isShowingSettings)
                 .padding(12)
