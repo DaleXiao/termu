@@ -35,6 +35,7 @@ struct TermuApp: App {
                 }
                 .frame(minWidth: 1040, minHeight: 680)
         }
+        .windowStyle(.hiddenTitleBar)
         .commands {
             CommandGroup(replacing: .newItem) {
                 Button("New Host") {

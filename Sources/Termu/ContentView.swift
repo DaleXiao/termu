@@ -16,18 +16,69 @@ private enum HostFilter: Hashable {
     }
 }
 
+private enum SidebarLayout {
+    static let minWidth: CGFloat = 260
+    static let idealWidth: CGFloat = 320
+    static let maxWidth: CGFloat = 420
+    static let titlebarHeight: CGFloat = 50
+    static let titlebarControlLeading: CGFloat = 78
+    static let titlebarControlTop: CGFloat = -21
+    static let resizeHitWidth: CGFloat = 12
+    static let collapsedDetailToolbarInset: CGFloat = 154
+}
+
 struct ContentView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @EnvironmentObject private var store: ConfigurationStore
     @StateObject private var sshSessions = SSHSessionStore()
     @StateObject private var localWorkspaces = LocalTerminalWorkspaceStore()
     @State private var filter: HostFilter = .all
     @State private var searchText = ""
     @State private var editingHostID: HostRecord.ID?
-    @State private var columnVisibility: NavigationSplitViewVisibility = .all
-    @State private var lastSidebarDividerDragAt = Date.distantPast
+    @State private var isSidebarVisible = true
+    @State private var sidebarWidth: CGFloat = SidebarLayout.idealWidth
 
     var body: some View {
-        NavigationSplitView(columnVisibility: $columnVisibility) {
+        HStack(spacing: 0) {
+            sidebarColumn
+                .overlay(alignment: .trailing) {
+                    SidebarResizeHandle(
+                        sidebarWidth: $sidebarWidth,
+                        isSidebarVisible: isSidebarVisible
+                    )
+                    .frame(width: SidebarLayout.resizeHitWidth)
+                    .frame(maxHeight: .infinity)
+                    .zIndex(2)
+                    .allowsHitTesting(isSidebarVisible)
+                }
+
+            detailColumn
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .ignoresSafeArea(.container, edges: .top)
+        .background(WindowChromeConfigurator())
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.22), value: isSidebarVisible)
+        .overlay(alignment: .topLeading) {
+            sidebarToggleButton
+                .padding(.leading, SidebarLayout.titlebarControlLeading)
+                .padding(.top, SidebarLayout.titlebarControlTop)
+        }
+        .onAppear(perform: prepareSelectedHost)
+        .onChange(of: store.selectedHostID) { _, _ in
+            prepareSelectedHost()
+            if editingHostID != store.selectedHostID {
+                editingHostID = nil
+            }
+        }
+    }
+
+    private var sidebarColumn: some View {
+        VStack(spacing: 0) {
+            Color.clear
+                .frame(height: SidebarLayout.titlebarHeight)
+
+            Divider()
+
             HostSidebarView(
                 filter: $filter,
                 searchText: $searchText,
@@ -37,35 +88,44 @@ struct ContentView: View {
                 disconnect: disconnect,
                 delete: delete
             )
-            .navigationSplitViewColumnWidth(min: 260, ideal: 320, max: 420)
-            .background(
-                SidebarSplitViewWidthLimiter(minWidth: 260, maxWidth: 420) {
-                    lastSidebarDividerDragAt = Date()
-                }
-            )
-        } detail: {
-            DetailView(
-                sshSessions: sshSessions,
-                localWorkspaces: localWorkspaces,
-                connect: connect,
-                newLocalTab: newLocalTab
-            )
         }
-        .onAppear(perform: prepareSelectedHost)
-        .onChange(of: store.selectedHostID) { _, _ in
-            prepareSelectedHost()
-            if editingHostID != store.selectedHostID {
-                editingHostID = nil
-            }
-        }
-        .onChange(of: columnVisibility) { _, visibility in
-            guard visibility != .all else { return }
-            guard Date().timeIntervalSince(lastSidebarDividerDragAt) < 0.5 else { return }
+        .background(SidebarVisualEffectBackground())
+        .frame(width: sidebarWidth)
+        .frame(maxHeight: .infinity)
+        .frame(width: isSidebarVisible ? sidebarWidth : 0, alignment: .leading)
+        .frame(maxHeight: .infinity)
+        .clipped()
+        .allowsHitTesting(isSidebarVisible)
+        .accessibilityHidden(!isSidebarVisible)
+    }
 
-            DispatchQueue.main.async {
-                columnVisibility = .all
+    private var sidebarToggleButton: some View {
+        Button {
+            isSidebarVisible.toggle()
+        } label: {
+            Image(systemName: "sidebar.left")
+        }
+        .buttonStyle(.borderless)
+        .help(isSidebarVisible ? "Hide Sidebar" : "Show Sidebar")
+        .keyboardShortcut("s", modifiers: [.command, .option])
+    }
+
+    private var detailColumn: some View {
+        DetailView(
+            sshSessions: sshSessions,
+            localWorkspaces: localWorkspaces,
+            connect: connect,
+            newLocalTab: newLocalTab,
+            topBarLeadingInset: isSidebarVisible ? 0 : SidebarLayout.collapsedDetailToolbarInset
+        )
+        .background(Color(nsColor: .windowBackgroundColor))
+        .overlay(alignment: .leading) {
+            if isSidebarVisible {
+                DetailLeadingShadow()
+                    .allowsHitTesting(false)
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func prepareSelectedHost() {
@@ -199,7 +259,10 @@ private struct HostSidebarView: View {
             Divider()
 
             hostList
-                .frame(minHeight: editingHostID == store.selectedHostID ? 160 : 220)
+                .frame(
+                    minHeight: editingHostID == store.selectedHostID ? 160 : 220,
+                    maxHeight: .infinity
+                )
 
             if editingHostID == store.selectedHostID,
                let host = store.selectedHostBinding {
@@ -217,6 +280,7 @@ private struct HostSidebarView: View {
             SidebarSettingsButton(isShowingSettings: $isShowingSettings)
                 .padding(12)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .searchable(text: $searchText, placement: .sidebar)
     }
 
@@ -266,7 +330,8 @@ private struct HostSidebarView: View {
             .disabled(store.selectedHost == nil)
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 10)
+        .padding(.vertical, 8)
+        .frame(height: 44)
     }
 
     @ViewBuilder
@@ -277,6 +342,7 @@ private struct HostSidebarView: View {
                 systemImage: "server.rack",
                 description: Text("Add a host to start building your terminal workspace.")
             )
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         } else {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 2) {
@@ -309,6 +375,7 @@ private struct HostSidebarView: View {
                 }
                 .padding(.vertical, 4)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
@@ -375,6 +442,190 @@ private struct HostSidebarView: View {
     private func dragItemProvider(for hostID: HostRecord.ID) -> NSItemProvider {
         draggingHostID = hostID
         return NSItemProvider(object: hostID.uuidString as NSString)
+    }
+}
+
+private struct SidebarResizeHandle: NSViewRepresentable {
+    @Binding var sidebarWidth: CGFloat
+    let isSidebarVisible: Bool
+
+    func makeNSView(context: Context) -> SidebarResizeHandleView {
+        SidebarResizeHandleView()
+    }
+
+    func updateNSView(_ nsView: SidebarResizeHandleView, context: Context) {
+        nsView.sidebarWidth = sidebarWidth
+        nsView.minWidth = SidebarLayout.minWidth
+        nsView.maxWidth = SidebarLayout.maxWidth
+        nsView.isSidebarVisible = isSidebarVisible
+        nsView.onWidthChanged = { sidebarWidth = $0 }
+    }
+}
+
+private final class SidebarResizeHandleView: NSView {
+    var sidebarWidth: CGFloat = SidebarLayout.idealWidth
+    var minWidth: CGFloat = SidebarLayout.minWidth
+    var maxWidth: CGFloat = SidebarLayout.maxWidth
+    var isSidebarVisible = true {
+        didSet {
+            needsDisplay = true
+            window?.invalidateCursorRects(for: self)
+        }
+    }
+    var onWidthChanged: ((CGFloat) -> Void)?
+
+    private var isHovering = false {
+        didSet { needsDisplay = true }
+    }
+    private var dragStartWindowX: CGFloat?
+    private var dragStartWidth: CGFloat = SidebarLayout.idealWidth
+    private var trackingArea: NSTrackingArea?
+
+    override var acceptsFirstResponder: Bool { true }
+    override var mouseDownCanMoveWindow: Bool { false }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.clear.cgColor
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.clear.cgColor
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard isSidebarVisible, bounds.contains(point) else { return nil }
+        return self
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let trackingArea {
+            removeTrackingArea(trackingArea)
+        }
+
+        let area = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+            owner: self
+        )
+        trackingArea = area
+        addTrackingArea(area)
+    }
+
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        if isSidebarVisible {
+            addCursorRect(bounds, cursor: .resizeLeftRight)
+        }
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        isHovering = true
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        isHovering = false
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(self)
+        dragStartWindowX = event.locationInWindow.x
+        dragStartWidth = sidebarWidth
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard let dragStartWindowX else { return }
+        let delta = event.locationInWindow.x - dragStartWindowX
+        let nextWidth = clampedWidth(dragStartWidth + delta)
+        sidebarWidth = nextWidth
+        onWidthChanged?(nextWidth)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        dragStartWindowX = nil
+        sidebarWidth = clampedWidth(sidebarWidth)
+        onWidthChanged?(sidebarWidth)
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        guard isSidebarVisible else { return }
+
+        let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
+        let lineWidth = 1 / scale
+        let lineRect = NSRect(
+            x: bounds.maxX - lineWidth,
+            y: 0,
+            width: lineWidth,
+            height: bounds.height
+        )
+        NSColor.separatorColor.setFill()
+        lineRect.fill()
+    }
+
+    private func clampedWidth(_ width: CGFloat) -> CGFloat {
+        min(max(width, minWidth), maxWidth)
+    }
+}
+
+private struct DetailLeadingShadow: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        Rectangle()
+            .fill(Color(nsColor: .windowBackgroundColor))
+            .frame(width: 1)
+            .shadow(
+                color: Color.black.opacity(colorScheme == .dark ? 0.20 : 0.12),
+                radius: 8,
+                x: -3,
+                y: 0
+            )
+    }
+}
+
+private struct SidebarVisualEffectBackground: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.material = .sidebar
+        view.blendingMode = .behindWindow
+        view.state = .active
+        return view
+    }
+
+    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
+        nsView.material = .sidebar
+        nsView.blendingMode = .behindWindow
+        nsView.state = .active
+    }
+}
+
+private struct WindowChromeConfigurator: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView(frame: .zero)
+        DispatchQueue.main.async {
+            configure(window: view.window)
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async {
+            configure(window: nsView.window)
+        }
+    }
+
+    private func configure(window: NSWindow?) {
+        guard let window else { return }
+
+        window.styleMask.insert(.fullSizeContentView)
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.isMovableByWindowBackground = true
     }
 }
 
@@ -574,6 +825,7 @@ private struct DetailView: View {
     @ObservedObject var localWorkspaces: LocalTerminalWorkspaceStore
     let connect: (HostRecord) -> Void
     let newLocalTab: (HostRecord) -> Void
+    let topBarLeadingInset: CGFloat
 
     var body: some View {
         if let host = store.selectedHostBinding {
@@ -582,7 +834,8 @@ private struct DetailView: View {
                 sshSessions: sshSessions,
                 localWorkspaces: localWorkspaces,
                 onConnect: connect,
-                onNewLocalTab: newLocalTab
+                onNewLocalTab: newLocalTab,
+                topBarLeadingInset: topBarLeadingInset
             )
         } else {
             WorkspaceIdleView()
@@ -716,24 +969,59 @@ private struct SettingsPanel: View {
 
                     Spacer(minLength: 0)
 
-                    Button {
+                    SyncRefreshButton {
                         store.refreshICloud()
-                    } label: {
-                        Image(systemName: "arrow.clockwise")
-                            .frame(width: 28, height: 28)
-                            .background(
-                                Circle()
-                                    .stroke(Color.secondary.opacity(0.35), lineWidth: 1)
-                            )
-                            .contentShape(Circle())
                     }
-                    .buttonStyle(.plain)
-                    .help("Refresh iCloud sync")
                 }
             }
         }
         .padding(16)
         .frame(width: 320)
+    }
+}
+
+private struct SyncRefreshButton: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var rotationDegrees = 0.0
+    @State private var isFlashActive = false
+    let action: () -> Void
+
+    var body: some View {
+        Button {
+            triggerRefresh()
+        } label: {
+            Image(systemName: "arrow.triangle.2.circlepath")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(isFlashActive ? Color.accentColor : Color.primary)
+                .frame(width: 28, height: 28)
+                .rotationEffect(.degrees(rotationDegrees))
+                .background(
+                    Circle()
+                        .fill(Color(nsColor: .controlBackgroundColor).opacity(0.55))
+                )
+                .overlay(
+                    Circle()
+                        .stroke(Color.secondary.opacity(0.32), lineWidth: 1)
+                )
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .help("Refresh iCloud sync")
+    }
+
+    private func triggerRefresh() {
+        action()
+
+        if reduceMotion {
+            isFlashActive = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
+                isFlashActive = false
+            }
+        } else {
+            withAnimation(.easeInOut(duration: 0.42)) {
+                rotationDegrees += 360
+            }
+        }
     }
 }
 

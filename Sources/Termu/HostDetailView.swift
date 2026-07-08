@@ -8,20 +8,31 @@ struct HostDetailView: View {
     @ObservedObject var localWorkspaces: LocalTerminalWorkspaceStore
     let onConnect: (HostRecord) -> Void
     let onNewLocalTab: (HostRecord) -> Void
+    let topBarLeadingInset: CGFloat
 
     var body: some View {
         switch host.kind {
         case .ssh:
-            SessionView(host: $host, session: sshSessions.session(for: host), onConnect: onConnect)
+            SessionView(
+                host: $host,
+                session: sshSessions.session(for: host),
+                onConnect: onConnect,
+                topBarLeadingInset: topBarLeadingInset
+            )
         case .local:
             LocalTerminalWorkspaceView(
                 host: $host,
                 workspaces: localWorkspaces,
                 onConnect: onConnect,
-                onNewTab: onNewLocalTab
+                onNewTab: onNewLocalTab,
+                topBarLeadingInset: topBarLeadingInset
             )
         }
     }
+}
+
+private enum DetailToolbarLayout {
+    static let height: CGFloat = 50
 }
 
 private struct SessionView: View {
@@ -30,6 +41,7 @@ private struct SessionView: View {
     @Binding var host: HostRecord
     @ObservedObject var session: PTYSession
     let onConnect: (HostRecord) -> Void
+    let topBarLeadingInset: CGFloat
 
     var body: some View {
         VStack(spacing: 0) {
@@ -82,8 +94,9 @@ private struct SessionView: View {
                 .help(openInTerminalHelp)
                 .disabled(!host.isConnectable)
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
+            .padding(.leading, 16 + topBarLeadingInset)
+            .padding(.trailing, 16)
+            .frame(height: DetailToolbarLayout.height)
             .background(.regularMaterial)
 
             terminalPanel
@@ -187,6 +200,7 @@ private struct LocalTerminalWorkspaceView: View {
     @ObservedObject var workspaces: LocalTerminalWorkspaceStore
     let onConnect: (HostRecord) -> Void
     let onNewTab: (HostRecord) -> Void
+    let topBarLeadingInset: CGFloat
     @State private var draggingTabID: LocalTerminalTab.ID?
     @State private var lastMovedTabDropID: LocalTerminalTab.ID?
     @State private var didMoveTabToEnd = false
@@ -237,18 +251,17 @@ private struct LocalTerminalWorkspaceView: View {
             Button {
                 onConnect(host)
             } label: {
-                Label("Start", systemImage: "play.fill")
+                ToolbarActionLabel(title: "Start", systemImage: "play.fill", iconXOffset: -0.5)
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(TerminalToolbarActionButtonStyle(kind: .start))
             .disabled(!host.isConnectable || (selectedSession?.isRunning ?? false))
 
             Button {
                 stopSelectedTab()
             } label: {
-                Label("Stop", systemImage: "xmark.circle")
+                ToolbarActionLabel(title: "Stop", systemImage: "xmark.circle.fill")
             }
-            .buttonStyle(.borderedProminent)
-            .tint((selectedSession?.isRunning ?? false) ? .red : .gray)
+            .buttonStyle(TerminalToolbarActionButtonStyle(kind: .stop))
             .disabled(!(selectedSession?.isRunning ?? false))
 
             Divider()
@@ -274,8 +287,9 @@ private struct LocalTerminalWorkspaceView: View {
             .help("Open this local shell in Apple Terminal.")
             .disabled(!host.isConnectable)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
+        .padding(.leading, 16 + topBarLeadingInset)
+        .padding(.trailing, 16)
+        .frame(height: DetailToolbarLayout.height)
         .background(.regularMaterial)
     }
 
@@ -579,6 +593,96 @@ private struct LocalTerminalTabEndDropDelegate: DropDelegate {
         lastMovedTabDropID = nil
         didMoveTabToEnd = false
         return didDrop
+    }
+}
+
+private struct ToolbarActionLabel: View {
+    let title: String
+    let systemImage: String
+    var iconXOffset: CGFloat = 0
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: systemImage)
+                .font(.system(size: 12, weight: .bold))
+                .frame(width: 14, height: 14)
+                .offset(x: iconXOffset)
+
+            Text(title)
+                .font(.system(size: 13, weight: .semibold))
+        }
+        .frame(minWidth: 72)
+    }
+}
+
+private struct TerminalToolbarActionButtonStyle: ButtonStyle {
+    enum Kind {
+        case start
+        case stop
+    }
+
+    @Environment(\.isEnabled) private var isEnabled
+    let kind: Kind
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .foregroundStyle(foregroundColor)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(background)
+            .overlay(border)
+            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .scaleEffect(configuration.isPressed && isEnabled ? 0.98 : 1)
+            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+    }
+
+    private var background: some View {
+        RoundedRectangle(cornerRadius: 6, style: .continuous)
+            .fill(backgroundColor)
+    }
+
+    private var border: some View {
+        RoundedRectangle(cornerRadius: 6, style: .continuous)
+            .stroke(borderColor, lineWidth: 1)
+    }
+
+    private var foregroundColor: Color {
+        if !isEnabled {
+            return Color.secondary.opacity(0.64)
+        }
+
+        switch kind {
+        case .start:
+            return .white
+        case .stop:
+            return .white
+        }
+    }
+
+    private var backgroundColor: Color {
+        if !isEnabled {
+            return Color.secondary.opacity(0.10)
+        }
+
+        switch kind {
+        case .start:
+            return Color.accentColor
+        case .stop:
+            return Color.red.opacity(0.88)
+        }
+    }
+
+    private var borderColor: Color {
+        if !isEnabled {
+            return Color.secondary.opacity(0.14)
+        }
+
+        switch kind {
+        case .start:
+            return Color.accentColor.opacity(0.72)
+        case .stop:
+            return Color.red.opacity(0.62)
+        }
     }
 }
 
