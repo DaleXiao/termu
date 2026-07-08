@@ -37,6 +37,8 @@ struct ContentView: View {
     @State private var editingHostID: HostRecord.ID?
     @State private var isSidebarVisible = true
     @State private var sidebarWidth: CGFloat = SidebarLayout.idealWidth
+    @State private var hostPendingDeletion: HostRecord?
+    @State private var isShowingDeleteConfirmation = false
 
     var body: some View {
         HStack(spacing: 0) {
@@ -64,10 +66,38 @@ struct ContentView: View {
                 .padding(.top, SidebarLayout.titlebarControlTop)
         }
         .onAppear(perform: prepareSelectedHost)
+        .onReceive(NotificationCenter.default.publisher(for: .termuRequestDeleteSelectedHost)) { _ in
+            if let host = store.selectedHost {
+                requestDelete(host)
+            }
+        }
         .onChange(of: store.selectedHostID) { _, _ in
             prepareSelectedHost()
             if editingHostID != store.selectedHostID {
                 editingHostID = nil
+            }
+        }
+        .alert("Delete Host?", isPresented: $isShowingDeleteConfirmation) {
+            Button("Delete", role: .destructive) {
+                if let host = hostPendingDeletion {
+                    delete(host)
+                }
+                hostPendingDeletion = nil
+            }
+
+            Button("Cancel", role: .cancel) {
+                hostPendingDeletion = nil
+            }
+        } message: {
+            if let host = hostPendingDeletion {
+                Text("This will remove \(host.title) and stop any active session. This cannot be undone.")
+            } else {
+                Text("This host will be removed. This cannot be undone.")
+            }
+        }
+        .onChange(of: isShowingDeleteConfirmation) { _, isShowing in
+            if !isShowing {
+                hostPendingDeletion = nil
             }
         }
     }
@@ -77,8 +107,6 @@ struct ContentView: View {
             Color.clear
                 .frame(height: SidebarLayout.titlebarHeight)
 
-            Divider()
-
             HostSidebarView(
                 filter: $filter,
                 searchText: $searchText,
@@ -86,7 +114,7 @@ struct ContentView: View {
                 isRunning: isRunning,
                 connect: connect,
                 disconnect: disconnect,
-                delete: delete
+                requestDelete: requestDelete
             )
         }
         .background(SidebarFrostedBackground())
@@ -204,6 +232,13 @@ struct ContentView: View {
         prepareSelectedHost()
     }
 
+    private func requestDelete(_ host: HostRecord) {
+        guard let currentHost = store.hosts.first(where: { $0.id == host.id }) else { return }
+        store.selectHost(currentHost.id)
+        hostPendingDeletion = currentHost
+        isShowingDeleteConfirmation = true
+    }
+
     private func isRunning(_ host: HostRecord) -> Bool {
         switch host.kind {
         case .ssh:
@@ -226,7 +261,7 @@ private struct HostSidebarView: View {
     let isRunning: (HostRecord) -> Bool
     let connect: (HostRecord) -> Void
     let disconnect: (HostRecord) -> Void
-    let delete: (HostRecord) -> Void
+    let requestDelete: (HostRecord) -> Void
 
     private var filteredHosts: [HostRecord] {
         store.hosts.filter { host in
@@ -255,8 +290,6 @@ private struct HostSidebarView: View {
     var body: some View {
         VStack(spacing: 0) {
             sidebarToolbar
-
-            Divider()
 
             hostList
                 .frame(
@@ -300,34 +333,15 @@ private struct HostSidebarView: View {
 
             Spacer(minLength: 8)
 
-            Menu {
-                Button {
-                    store.addHost(kind: .ssh)
-                    editingHostID = store.selectedHostID
-                } label: {
-                    Label("SSH Host", systemImage: "server.rack")
-                }
-
-                Button {
-                    store.addHost(kind: .local)
-                    editingHostID = store.selectedHostID
-                } label: {
-                    Label("Local", systemImage: "terminal")
-                }
-            } label: {
-                Image(systemName: "plus")
+            NewHostMenuButton {
+                store.addHost(kind: .ssh)
+                editingHostID = store.selectedHostID
+            } addLocal: {
+                store.addHost(kind: .local)
+                editingHostID = store.selectedHostID
             }
+            .frame(width: 42, height: 28)
             .help("New Host")
-
-            Button {
-                if let host = store.selectedHost {
-                    delete(host)
-                }
-            } label: {
-                Image(systemName: "trash")
-            }
-            .help("Delete Host")
-            .disabled(store.selectedHost == nil)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
@@ -378,7 +392,6 @@ private struct HostSidebarView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
-
     private func hostListRow(for host: HostRecord) -> some View {
         HostRow(
             host: host,
@@ -429,7 +442,7 @@ private struct HostSidebarView: View {
                     editingHostID = host.id
                 },
                 delete: {
-                    delete(host)
+                    requestDelete(host)
                 }
             )
         }
@@ -442,6 +455,82 @@ private struct HostSidebarView: View {
     private func dragItemProvider(for hostID: HostRecord.ID) -> NSItemProvider {
         draggingHostID = hostID
         return NSItemProvider(object: hostID.uuidString as NSString)
+    }
+}
+
+private struct NewHostMenuButton: NSViewRepresentable {
+    let addSSH: () -> Void
+    let addLocal: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(addSSH: addSSH, addLocal: addLocal)
+    }
+
+    func makeNSView(context: Context) -> NSButton {
+        let button = NSButton(
+            image: NSImage(systemSymbolName: "plus", accessibilityDescription: "New Host") ?? NSImage(),
+            target: context.coordinator,
+            action: #selector(Coordinator.showMenu(_:))
+        )
+        button.bezelStyle = .rounded
+        button.controlSize = .regular
+        button.focusRingType = .none
+        button.imagePosition = .imageOnly
+        button.imageScaling = .scaleProportionallyDown
+        button.setButtonType(.momentaryPushIn)
+        button.toolTip = "New Host"
+        return button
+    }
+
+    func updateNSView(_ nsView: NSButton, context: Context) {
+        context.coordinator.addSSH = addSSH
+        context.coordinator.addLocal = addLocal
+    }
+
+    final class Coordinator: NSObject {
+        var addSSH: () -> Void
+        var addLocal: () -> Void
+
+        init(addSSH: @escaping () -> Void, addLocal: @escaping () -> Void) {
+            self.addSSH = addSSH
+            self.addLocal = addLocal
+        }
+
+        @MainActor @objc func showMenu(_ sender: NSButton) {
+            let menu = NSMenu()
+
+            let sshItem = NSMenuItem(
+                title: "SSH Host",
+                action: #selector(addSSHHost),
+                keyEquivalent: ""
+            )
+            sshItem.target = self
+            sshItem.image = NSImage(systemSymbolName: "server.rack", accessibilityDescription: nil)
+            menu.addItem(sshItem)
+
+            let localItem = NSMenuItem(
+                title: "Local",
+                action: #selector(addLocalHost),
+                keyEquivalent: ""
+            )
+            localItem.target = self
+            localItem.image = NSImage(systemSymbolName: "terminal", accessibilityDescription: nil)
+            menu.addItem(localItem)
+
+            menu.popUp(
+                positioning: nil,
+                at: NSPoint(x: 0, y: sender.bounds.minY - 4),
+                in: sender
+            )
+        }
+
+        @MainActor @objc private func addSSHHost() {
+            addSSH()
+        }
+
+        @MainActor @objc private func addLocalHost() {
+            addLocal()
+        }
     }
 }
 

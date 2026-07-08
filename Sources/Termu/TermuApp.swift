@@ -1,6 +1,10 @@
 import AppKit
 import SwiftUI
 
+extension Notification.Name {
+    static let termuRequestDeleteSelectedHost = Notification.Name("Termu.requestDeleteSelectedHost")
+}
+
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {
         false
@@ -52,7 +56,7 @@ struct TermuApp: App {
                 .disabled(store.selectedHost == nil)
 
                 Button("Delete Host") {
-                    store.deleteSelectedHost()
+                    NotificationCenter.default.post(name: .termuRequestDeleteSelectedHost, object: nil)
                 }
                 .keyboardShortcut(.delete, modifiers: [.command])
                 .disabled(store.selectedHost == nil)

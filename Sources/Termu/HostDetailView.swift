@@ -225,8 +225,6 @@ private struct LocalTerminalWorkspaceView: View {
         VStack(spacing: 0) {
             toolbar
 
-            Divider()
-
             tabBar
 
             Divider()
