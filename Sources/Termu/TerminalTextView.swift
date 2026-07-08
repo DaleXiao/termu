@@ -21,7 +21,7 @@ struct TerminalTextView: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> TerminalContainerView {
-        let terminalView = TerminalView(
+        let terminalView = TermuTerminalView(
             frame: TerminalContainerView.initialTerminalFrame,
             font: Self.makeTerminalFont()
         )
@@ -124,6 +124,10 @@ struct TerminalTextView: NSViewRepresentable {
             true
         }
 
+        override var mouseDownCanMoveWindow: Bool {
+            false
+        }
+
         init(terminalView: TerminalView) {
             self.terminalView = terminalView
             super.init(frame: .zero)
@@ -219,6 +223,12 @@ struct TerminalTextView: NSViewRepresentable {
                 terminalView.frame = bounds
             }
             updateTerminalLayout()
+        }
+    }
+
+    final class TermuTerminalView: TerminalView {
+        override var mouseDownCanMoveWindow: Bool {
+            false
         }
     }
 

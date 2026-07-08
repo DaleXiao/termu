@@ -89,7 +89,7 @@ struct ContentView: View {
                 delete: delete
             )
         }
-        .background(SidebarVisualEffectBackground())
+        .background(SidebarFrostedBackground())
         .frame(width: sidebarWidth)
         .frame(maxHeight: .infinity)
         .frame(width: isSidebarVisible ? sidebarWidth : 0, alignment: .leading)
@@ -588,17 +588,32 @@ private struct DetailLeadingShadow: View {
     }
 }
 
+private struct SidebarFrostedBackground: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        SidebarVisualEffectBackground()
+            .overlay(
+                Color.white.opacity(colorScheme == .dark ? 0.06 : 0.36)
+            )
+            .overlay(
+                Color(nsColor: .windowBackgroundColor)
+                    .opacity(colorScheme == .dark ? 0.03 : 0.10)
+            )
+    }
+}
+
 private struct SidebarVisualEffectBackground: NSViewRepresentable {
     func makeNSView(context: Context) -> NSVisualEffectView {
         let view = NSVisualEffectView()
-        view.material = .sidebar
+        view.material = .underWindowBackground
         view.blendingMode = .behindWindow
         view.state = .active
         return view
     }
 
     func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
-        nsView.material = .sidebar
+        nsView.material = .underWindowBackground
         nsView.blendingMode = .behindWindow
         nsView.state = .active
     }
@@ -625,7 +640,7 @@ private struct WindowChromeConfigurator: NSViewRepresentable {
         window.styleMask.insert(.fullSizeContentView)
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
-        window.isMovableByWindowBackground = true
+        window.isMovableByWindowBackground = false
     }
 }
 
