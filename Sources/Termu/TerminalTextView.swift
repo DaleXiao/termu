@@ -247,6 +247,7 @@ struct TerminalTextView: NSViewRepresentable {
         private var pendingTerminalDataWorkItem: DispatchWorkItem?
         private var pendingFocusWorkItems: [DispatchWorkItem] = []
         private var isReadyForTerminalData = false
+        private var isResizePending = false
         private var pendingTerminalData = Data()
         private static let resizeDebounceDelay: TimeInterval = 0.08
 
@@ -289,6 +290,7 @@ struct TerminalTextView: NSViewRepresentable {
             if sessionChanged {
                 pendingResizeWorkItem?.cancel()
                 pendingResizeWorkItem = nil
+                isResizePending = false
                 pendingTerminalDataWorkItem?.cancel()
                 pendingTerminalDataWorkItem = nil
                 lastTerminalSize = nil
@@ -323,6 +325,7 @@ struct TerminalTextView: NSViewRepresentable {
         func unbind() {
             pendingResizeWorkItem?.cancel()
             pendingResizeWorkItem = nil
+            isResizePending = false
             pendingTerminalDataWorkItem?.cancel()
             pendingTerminalDataWorkItem = nil
             cancelPendingFocusRequests()
@@ -354,7 +357,7 @@ struct TerminalTextView: NSViewRepresentable {
             guard terminalView != nil else { return }
 
             pendingTerminalData.append(data)
-            guard isActive, isReadyForTerminalData else { return }
+            guard isActive, isReadyForTerminalData, !isResizePending else { return }
             schedulePendingTerminalDataFlush()
         }
 
@@ -397,9 +400,11 @@ struct TerminalTextView: NSViewRepresentable {
             }
 
             let newTerminalSize = (newCols, newRows)
-            isReadyForTerminalData = true
             guard lastTerminalSize?.cols != newTerminalSize.0 || lastTerminalSize?.rows != newTerminalSize.1 else {
-                flushPendingTerminalData()
+                if !isResizePending {
+                    isReadyForTerminalData = true
+                    flushPendingTerminalData()
+                }
                 return
             }
             let shouldResizeImmediately = lastTerminalSize == nil
@@ -409,15 +414,24 @@ struct TerminalTextView: NSViewRepresentable {
             pendingResizeWorkItem?.cancel()
             if shouldResizeImmediately {
                 session?.resize(cols: newCols, rows: newRows)
+                isResizePending = false
+                isReadyForTerminalData = true
                 flushPendingTerminalData()
                 return
             }
 
-            flushPendingTerminalData()
+            isResizePending = true
+            isReadyForTerminalData = false
 
             let workItem = DispatchWorkItem { [weak self, weak session] in
                 guard let self, self.session === session else { return }
                 session?.resize(cols: newCols, rows: newRows)
+                self.isResizePending = false
+                self.isReadyForTerminalData = true
+                if let terminalView = self.terminalView {
+                    self.redrawFullTerminal(terminalView)
+                }
+                self.flushPendingTerminalData()
             }
             pendingResizeWorkItem = workItem
             DispatchQueue.main.asyncAfter(deadline: .now() + Self.resizeDebounceDelay, execute: workItem)
@@ -480,7 +494,7 @@ struct TerminalTextView: NSViewRepresentable {
             terminalView.clipsToBounds = true
             terminalView.layer?.masksToBounds = true
             terminalView.layer?.needsDisplayOnBoundsChange = true
-            terminalView.disableFullRedrawOnAnyChanges = true
+            terminalView.disableFullRedrawOnAnyChanges = false
             terminalView.optionAsMetaKey = true
             terminalView.allowMouseReporting = true
             terminalView.linkHighlightMode = .hoverWithModifier
