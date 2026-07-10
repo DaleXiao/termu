@@ -61,10 +61,7 @@ struct ContentView: View {
             detailColumn
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .ignoresSafeArea(
-            .container,
-            edges: WindowChromeCompatibility.usesFullHeightLayout ? .top : []
-        )
+        .ignoresSafeArea(.container, edges: .top)
         .background(WindowChromeConfigurator())
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.22), value: isSidebarVisible)
         .overlay(alignment: .topLeading) {
@@ -72,13 +69,6 @@ struct ContentView: View {
                 sidebarToggleButton
                     .padding(.leading, SidebarLayout.titlebarControlLeading)
                     .padding(.top, SidebarLayout.titlebarControlTop)
-            }
-        }
-        .toolbar {
-            if !WindowChromeCompatibility.usesFullHeightLayout {
-                ToolbarItem(placement: .navigation) {
-                    sidebarToggleButton
-                }
             }
         }
         .onAppear(perform: prepareSelectedHost)
@@ -120,12 +110,12 @@ struct ContentView: View {
 
     private var sidebarColumn: some View {
         VStack(spacing: 0) {
-            Color.clear
-                .frame(
-                    height: WindowChromeCompatibility.usesFullHeightLayout
-                        ? SidebarLayout.titlebarHeight
-                        : 0
-                )
+            if WindowChromeCompatibility.usesFullHeightLayout {
+                Color.clear
+                    .frame(height: SidebarLayout.titlebarHeight)
+            } else {
+                legacySidebarTitlebar
+            }
 
             HostSidebarView(
                 filter: $filter,
@@ -147,6 +137,44 @@ struct ContentView: View {
         .accessibilityHidden(!isSidebarVisible)
     }
 
+    private var legacySidebarTitlebar: some View {
+        HStack(spacing: 8) {
+            Color.clear
+                .frame(width: SidebarLayout.titlebarControlLeading)
+
+            legacySidebarToggleButton
+
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.secondary)
+
+                TextField("Search", text: $searchText)
+                    .textFieldStyle(.plain)
+
+                if !searchText.isEmpty {
+                    Button {
+                        searchText = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.tertiary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Clear Search")
+                }
+            }
+            .padding(.horizontal, 8)
+            .frame(height: 28)
+            .background(Color(nsColor: .controlBackgroundColor).opacity(0.72))
+            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .stroke(Color(nsColor: .separatorColor).opacity(0.55), lineWidth: 1)
+            }
+        }
+        .padding(.trailing, 12)
+        .frame(height: SidebarLayout.titlebarHeight)
+    }
+
     private var sidebarToggleButton: some View {
         Button {
             isSidebarVisible.toggle()
@@ -158,16 +186,48 @@ struct ContentView: View {
         .keyboardShortcut("s", modifiers: [.command, .option])
     }
 
+    private var legacySidebarToggleButton: some View {
+        Button {
+            isSidebarVisible.toggle()
+        } label: {
+            Image(systemName: "sidebar.left")
+                .font(.system(size: 14, weight: .medium))
+                .frame(width: 28, height: 28)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.secondary)
+        .help(isSidebarVisible ? "Hide Sidebar" : "Show Sidebar")
+        .keyboardShortcut("s", modifiers: [.command, .option])
+    }
+
     private var detailColumn: some View {
-        DetailView(
-            sshSessions: sshSessions,
-            localWorkspaces: localWorkspaces,
-            connect: connect,
-            newLocalTab: newLocalTab,
-            topBarLeadingInset: WindowChromeCompatibility.usesFullHeightLayout && !isSidebarVisible
-                ? SidebarLayout.collapsedDetailToolbarInset
-                : 0
-        )
+        VStack(spacing: 0) {
+            if !WindowChromeCompatibility.usesFullHeightLayout {
+                Color.clear
+                    .frame(height: SidebarLayout.titlebarHeight)
+            }
+
+            ZStack(alignment: .topLeading) {
+                DetailView(
+                    sshSessions: sshSessions,
+                    localWorkspaces: localWorkspaces,
+                    connect: connect,
+                    newLocalTab: newLocalTab,
+                    topBarLeadingInset: isSidebarVisible
+                        ? 0
+                        : WindowChromeCompatibility.usesFullHeightLayout
+                            ? SidebarLayout.collapsedDetailToolbarInset
+                            : 40
+                )
+
+                if !WindowChromeCompatibility.usesFullHeightLayout && !isSidebarVisible {
+                    legacySidebarToggleButton
+                        .padding(.leading, 12)
+                        .padding(.top, 11)
+                }
+            }
+        }
         .background(Color(nsColor: .windowBackgroundColor))
         .overlay(alignment: .leading) {
             if isSidebarVisible {
@@ -309,7 +369,17 @@ private struct HostSidebarView: View {
         }
     }
 
+    @ViewBuilder
     var body: some View {
+        if WindowChromeCompatibility.usesFullHeightLayout {
+            sidebarContent
+                .searchable(text: $searchText, placement: .sidebar)
+        } else {
+            sidebarContent
+        }
+    }
+
+    private var sidebarContent: some View {
         VStack(spacing: 0) {
             sidebarToolbar
 
@@ -336,7 +406,6 @@ private struct HostSidebarView: View {
                 .padding(12)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .searchable(text: $searchText, placement: .sidebar)
     }
 
     private var sidebarToolbar: some View {
@@ -717,10 +786,7 @@ private struct SidebarFrostedBackground: View {
                     .opacity(colorScheme == .dark ? 0.03 : 0.10)
             )
         } else {
-            SidebarVisualEffectBackground(
-                material: .sidebar,
-                blendingMode: .withinWindow
-            )
+            Color(nsColor: .controlBackgroundColor)
         }
     }
 }
