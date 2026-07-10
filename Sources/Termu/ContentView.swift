@@ -27,6 +27,10 @@ private enum SidebarLayout {
     static let collapsedDetailToolbarInset: CGFloat = 154
 }
 
+private enum WindowChromeCompatibility {
+    static let usesFullHeightLayout = ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 27
+}
+
 struct ContentView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @EnvironmentObject private var store: ConfigurationStore
@@ -57,13 +61,25 @@ struct ContentView: View {
             detailColumn
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .ignoresSafeArea(.container, edges: .top)
+        .ignoresSafeArea(
+            .container,
+            edges: WindowChromeCompatibility.usesFullHeightLayout ? .top : []
+        )
         .background(WindowChromeConfigurator())
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.22), value: isSidebarVisible)
         .overlay(alignment: .topLeading) {
-            sidebarToggleButton
-                .padding(.leading, SidebarLayout.titlebarControlLeading)
-                .padding(.top, SidebarLayout.titlebarControlTop)
+            if WindowChromeCompatibility.usesFullHeightLayout {
+                sidebarToggleButton
+                    .padding(.leading, SidebarLayout.titlebarControlLeading)
+                    .padding(.top, SidebarLayout.titlebarControlTop)
+            }
+        }
+        .toolbar {
+            if !WindowChromeCompatibility.usesFullHeightLayout {
+                ToolbarItem(placement: .navigation) {
+                    sidebarToggleButton
+                }
+            }
         }
         .onAppear(perform: prepareSelectedHost)
         .onReceive(NotificationCenter.default.publisher(for: .termuRequestDeleteSelectedHost)) { _ in
@@ -105,7 +121,11 @@ struct ContentView: View {
     private var sidebarColumn: some View {
         VStack(spacing: 0) {
             Color.clear
-                .frame(height: SidebarLayout.titlebarHeight)
+                .frame(
+                    height: WindowChromeCompatibility.usesFullHeightLayout
+                        ? SidebarLayout.titlebarHeight
+                        : 0
+                )
 
             HostSidebarView(
                 filter: $filter,
@@ -144,7 +164,9 @@ struct ContentView: View {
             localWorkspaces: localWorkspaces,
             connect: connect,
             newLocalTab: newLocalTab,
-            topBarLeadingInset: isSidebarVisible ? 0 : SidebarLayout.collapsedDetailToolbarInset
+            topBarLeadingInset: WindowChromeCompatibility.usesFullHeightLayout && !isSidebarVisible
+                ? SidebarLayout.collapsedDetailToolbarInset
+                : 0
         )
         .background(Color(nsColor: .windowBackgroundColor))
         .overlay(alignment: .leading) {
@@ -680,8 +702,13 @@ private struct DetailLeadingShadow: View {
 private struct SidebarFrostedBackground: View {
     @Environment(\.colorScheme) private var colorScheme
 
+    @ViewBuilder
     var body: some View {
-        SidebarVisualEffectBackground()
+        if WindowChromeCompatibility.usesFullHeightLayout {
+            SidebarVisualEffectBackground(
+                material: .underWindowBackground,
+                blendingMode: .behindWindow
+            )
             .overlay(
                 Color.white.opacity(colorScheme == .dark ? 0.06 : 0.36)
             )
@@ -689,21 +716,30 @@ private struct SidebarFrostedBackground: View {
                 Color(nsColor: .windowBackgroundColor)
                     .opacity(colorScheme == .dark ? 0.03 : 0.10)
             )
+        } else {
+            SidebarVisualEffectBackground(
+                material: .sidebar,
+                blendingMode: .withinWindow
+            )
+        }
     }
 }
 
 private struct SidebarVisualEffectBackground: NSViewRepresentable {
+    let material: NSVisualEffectView.Material
+    let blendingMode: NSVisualEffectView.BlendingMode
+
     func makeNSView(context: Context) -> NSVisualEffectView {
         let view = NSVisualEffectView()
-        view.material = .underWindowBackground
-        view.blendingMode = .behindWindow
+        view.material = material
+        view.blendingMode = blendingMode
         view.state = .active
         return view
     }
 
     func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
-        nsView.material = .underWindowBackground
-        nsView.blendingMode = .behindWindow
+        nsView.material = material
+        nsView.blendingMode = blendingMode
         nsView.state = .active
     }
 }
