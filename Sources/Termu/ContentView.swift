@@ -61,8 +61,17 @@ struct ContentView: View {
             detailColumn
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .ignoresSafeArea(.container, edges: .top)
-        .background(WindowChromeConfigurator())
+        .ignoresSafeArea(
+            .container,
+            edges: WindowChromeCompatibility.usesFullHeightLayout ? .top : []
+        )
+        .background(
+            WindowChromeConfigurator(
+                searchText: $searchText,
+                isSidebarVisible: $isSidebarVisible,
+                usesFullHeightLayout: WindowChromeCompatibility.usesFullHeightLayout
+            )
+        )
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.22), value: isSidebarVisible)
         .overlay(alignment: .topLeading) {
             if WindowChromeCompatibility.usesFullHeightLayout {
@@ -76,6 +85,9 @@ struct ContentView: View {
             if let host = store.selectedHost {
                 requestDelete(host)
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .termuRequestToggleSidebar)) { _ in
+            isSidebarVisible.toggle()
         }
         .onChange(of: store.selectedHostID) { _, _ in
             prepareSelectedHost()
@@ -110,12 +122,12 @@ struct ContentView: View {
 
     private var sidebarColumn: some View {
         VStack(spacing: 0) {
-            if WindowChromeCompatibility.usesFullHeightLayout {
-                Color.clear
-                    .frame(height: SidebarLayout.titlebarHeight)
-            } else {
-                legacySidebarTitlebar
-            }
+            Color.clear
+                .frame(
+                    height: WindowChromeCompatibility.usesFullHeightLayout
+                        ? SidebarLayout.titlebarHeight
+                        : 0
+                )
 
             HostSidebarView(
                 filter: $filter,
@@ -137,44 +149,6 @@ struct ContentView: View {
         .accessibilityHidden(!isSidebarVisible)
     }
 
-    private var legacySidebarTitlebar: some View {
-        HStack(spacing: 8) {
-            Color.clear
-                .frame(width: SidebarLayout.titlebarControlLeading)
-
-            legacySidebarToggleButton
-
-            HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundStyle(.secondary)
-
-                TextField("Search", text: $searchText)
-                    .textFieldStyle(.plain)
-
-                if !searchText.isEmpty {
-                    Button {
-                        searchText = ""
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(.tertiary)
-                    }
-                    .buttonStyle(.plain)
-                    .help("Clear Search")
-                }
-            }
-            .padding(.horizontal, 8)
-            .frame(height: 28)
-            .background(Color(nsColor: .controlBackgroundColor).opacity(0.72))
-            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .stroke(Color(nsColor: .separatorColor).opacity(0.55), lineWidth: 1)
-            }
-        }
-        .padding(.trailing, 12)
-        .frame(height: SidebarLayout.titlebarHeight)
-    }
-
     private var sidebarToggleButton: some View {
         Button {
             isSidebarVisible.toggle()
@@ -183,51 +157,18 @@ struct ContentView: View {
         }
         .buttonStyle(.borderless)
         .help(isSidebarVisible ? "Hide Sidebar" : "Show Sidebar")
-        .keyboardShortcut("s", modifiers: [.command, .option])
-    }
-
-    private var legacySidebarToggleButton: some View {
-        Button {
-            isSidebarVisible.toggle()
-        } label: {
-            Image(systemName: "sidebar.left")
-                .font(.system(size: 14, weight: .medium))
-                .frame(width: 28, height: 28)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(.secondary)
-        .help(isSidebarVisible ? "Hide Sidebar" : "Show Sidebar")
-        .keyboardShortcut("s", modifiers: [.command, .option])
     }
 
     private var detailColumn: some View {
-        VStack(spacing: 0) {
-            if !WindowChromeCompatibility.usesFullHeightLayout {
-                Color.clear
-                    .frame(height: SidebarLayout.titlebarHeight)
-            }
-
-            ZStack(alignment: .topLeading) {
-                DetailView(
-                    sshSessions: sshSessions,
-                    localWorkspaces: localWorkspaces,
-                    connect: connect,
-                    newLocalTab: newLocalTab,
-                    topBarLeadingInset: isSidebarVisible
-                        ? 0
-                        : WindowChromeCompatibility.usesFullHeightLayout
-                            ? SidebarLayout.collapsedDetailToolbarInset
-                            : 40
-                )
-
-                if !WindowChromeCompatibility.usesFullHeightLayout && !isSidebarVisible {
-                    legacySidebarToggleButton
-                        .padding(.leading, 12)
-                        .padding(.top, 11)
-                }
-            }
-        }
+        DetailView(
+            sshSessions: sshSessions,
+            localWorkspaces: localWorkspaces,
+            connect: connect,
+            newLocalTab: newLocalTab,
+            topBarLeadingInset: WindowChromeCompatibility.usesFullHeightLayout && !isSidebarVisible
+                ? SidebarLayout.collapsedDetailToolbarInset
+                : 0
+        )
         .background(Color(nsColor: .windowBackgroundColor))
         .overlay(alignment: .leading) {
             if isSidebarVisible {
@@ -786,7 +727,10 @@ private struct SidebarFrostedBackground: View {
                     .opacity(colorScheme == .dark ? 0.03 : 0.10)
             )
         } else {
-            Color(nsColor: .controlBackgroundColor)
+            SidebarVisualEffectBackground(
+                material: .sidebar,
+                blendingMode: .withinWindow
+            )
         }
     }
 }
@@ -811,27 +755,157 @@ private struct SidebarVisualEffectBackground: NSViewRepresentable {
 }
 
 private struct WindowChromeConfigurator: NSViewRepresentable {
+    @Binding var searchText: String
+    @Binding var isSidebarVisible: Bool
+    let usesFullHeightLayout: Bool
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(
+            searchText: $searchText,
+            isSidebarVisible: $isSidebarVisible
+        )
+    }
+
     func makeNSView(context: Context) -> NSView {
         let view = NSView(frame: .zero)
         DispatchQueue.main.async {
-            configure(window: view.window)
+            context.coordinator.configure(
+                window: view.window,
+                usesFullHeightLayout: usesFullHeightLayout
+            )
         }
         return view
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
         DispatchQueue.main.async {
-            configure(window: nsView.window)
+            context.coordinator.update(
+                searchText: searchText,
+                isSidebarVisible: isSidebarVisible
+            )
+            context.coordinator.configure(
+                window: nsView.window,
+                usesFullHeightLayout: usesFullHeightLayout
+            )
         }
     }
 
-    private func configure(window: NSWindow?) {
-        guard let window else { return }
+    @MainActor
+    final class Coordinator: NSObject, NSToolbarDelegate, NSSearchFieldDelegate {
+        private static let toolbarIdentifier = NSToolbar.Identifier("Termu.LegacyToolbar")
+        private static let sidebarItemIdentifier = NSToolbarItem.Identifier("Termu.ToggleSidebar")
+        private static let searchItemIdentifier = NSToolbarItem.Identifier("Termu.Search")
 
-        window.styleMask.insert(.fullSizeContentView)
-        window.titleVisibility = .hidden
-        window.titlebarAppearsTransparent = true
-        window.isMovableByWindowBackground = false
+        @Binding private var searchText: String
+        @Binding private var isSidebarVisible: Bool
+        private let toolbar = NSToolbar(identifier: toolbarIdentifier)
+        private weak var sidebarItem: NSToolbarItem?
+        private weak var searchItem: NSSearchToolbarItem?
+
+        init(searchText: Binding<String>, isSidebarVisible: Binding<Bool>) {
+            _searchText = searchText
+            _isSidebarVisible = isSidebarVisible
+            super.init()
+
+            toolbar.delegate = self
+            toolbar.displayMode = .iconOnly
+            toolbar.allowsUserCustomization = false
+            toolbar.autosavesConfiguration = false
+        }
+
+        func configure(window: NSWindow?, usesFullHeightLayout: Bool) {
+            guard let window else { return }
+
+            if usesFullHeightLayout {
+                window.styleMask.insert(.fullSizeContentView)
+                window.titleVisibility = .hidden
+                window.titlebarAppearsTransparent = true
+            } else {
+                window.styleMask.remove(.fullSizeContentView)
+                window.titleVisibility = .hidden
+                window.titlebarAppearsTransparent = false
+                window.toolbarStyle = .unifiedCompact
+                window.titlebarSeparatorStyle = .automatic
+
+                if window.toolbar !== toolbar {
+                    window.toolbar = toolbar
+                }
+                toolbar.isVisible = true
+            }
+
+            window.isMovableByWindowBackground = false
+            update(searchText: searchText, isSidebarVisible: isSidebarVisible)
+        }
+
+        func update(searchText: String, isSidebarVisible: Bool) {
+            let sidebarTitle = isSidebarVisible ? "Hide Sidebar" : "Show Sidebar"
+            sidebarItem?.label = sidebarTitle
+            sidebarItem?.paletteLabel = sidebarTitle
+            sidebarItem?.toolTip = sidebarTitle
+
+            if searchItem?.searchField.stringValue != searchText {
+                searchItem?.searchField.stringValue = searchText
+            }
+        }
+
+        func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+            [Self.sidebarItemIdentifier, Self.searchItemIdentifier, .flexibleSpace]
+        }
+
+        func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+            toolbarDefaultItemIdentifiers(toolbar)
+        }
+
+        func toolbar(
+            _ toolbar: NSToolbar,
+            itemForItemIdentifier itemIdentifier: NSToolbarItem.Identifier,
+            willBeInsertedIntoToolbar flag: Bool
+        ) -> NSToolbarItem? {
+            switch itemIdentifier {
+            case Self.sidebarItemIdentifier:
+                let item = NSToolbarItem(itemIdentifier: itemIdentifier)
+                item.image = NSImage(systemSymbolName: "sidebar.left", accessibilityDescription: "Toggle Sidebar")
+                item.target = self
+                item.action = #selector(toggleSidebar)
+                item.isNavigational = true
+                item.isBordered = true
+                item.autovalidates = false
+                if flag {
+                    sidebarItem = item
+                }
+                return item
+
+            case Self.searchItemIdentifier:
+                let item = NSSearchToolbarItem(itemIdentifier: itemIdentifier)
+                item.label = "Search"
+                item.paletteLabel = "Search"
+                item.preferredWidthForSearchField = 190
+                item.searchField.placeholderString = "Search"
+                item.searchField.delegate = self
+                item.searchField.sendsSearchStringImmediately = true
+                item.searchField.sendsWholeSearchString = false
+                item.searchField.widthAnchor.constraint(equalToConstant: 190).isActive = true
+                if flag {
+                    searchItem = item
+                }
+                return item
+
+            default:
+                return nil
+            }
+        }
+
+        func controlTextDidChange(_ notification: Notification) {
+            guard let searchField = notification.object as? NSSearchField else { return }
+            let value = searchField.stringValue
+            if searchText != value {
+                searchText = value
+            }
+        }
+
+        @objc private func toggleSidebar() {
+            isSidebarVisible.toggle()
+        }
     }
 }
 

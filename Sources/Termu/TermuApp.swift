@@ -3,6 +3,7 @@ import SwiftUI
 
 extension Notification.Name {
     static let termuRequestDeleteSelectedHost = Notification.Name("Termu.requestDeleteSelectedHost")
+    static let termuRequestToggleSidebar = Notification.Name("Termu.requestToggleSidebar")
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -46,6 +47,13 @@ struct TermuApp: App {
                     store.addHost()
                 }
                 .keyboardShortcut("n", modifiers: [.command])
+            }
+
+            CommandGroup(after: .sidebar) {
+                Button("Toggle Sidebar") {
+                    NotificationCenter.default.post(name: .termuRequestToggleSidebar, object: nil)
+                }
+                .keyboardShortcut("s", modifiers: [.command, .option])
             }
 
             CommandMenu("Host") {
