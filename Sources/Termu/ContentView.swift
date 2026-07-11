@@ -65,13 +65,13 @@ struct ContentView: View {
             .container,
             edges: WindowChromeCompatibility.usesFullHeightLayout ? .top : []
         )
-        .background(
-            WindowChromeConfigurator(
-                searchText: $searchText,
-                isSidebarVisible: $isSidebarVisible,
-                usesFullHeightLayout: WindowChromeCompatibility.usesFullHeightLayout
-            )
-        )
+        .background {
+            if WindowChromeCompatibility.usesFullHeightLayout {
+                FullHeightWindowChromeConfigurator()
+            } else {
+                LegacyWindowChromeConfigurator(isSidebarVisible: $isSidebarVisible)
+            }
+        }
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.22), value: isSidebarVisible)
         .overlay(alignment: .topLeading) {
             if WindowChromeCompatibility.usesFullHeightLayout {
@@ -754,56 +754,63 @@ private struct SidebarVisualEffectBackground: NSViewRepresentable {
     }
 }
 
-private struct WindowChromeConfigurator: NSViewRepresentable {
-    @Binding var searchText: String
-    @Binding var isSidebarVisible: Bool
-    let usesFullHeightLayout: Bool
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(
-            searchText: $searchText,
-            isSidebarVisible: $isSidebarVisible
-        )
-    }
-
+private struct FullHeightWindowChromeConfigurator: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView {
         let view = NSView(frame: .zero)
         DispatchQueue.main.async {
-            context.coordinator.configure(
-                window: view.window,
-                usesFullHeightLayout: usesFullHeightLayout
-            )
+            configure(window: view.window)
         }
         return view
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
         DispatchQueue.main.async {
-            context.coordinator.update(
-                searchText: searchText,
-                isSidebarVisible: isSidebarVisible
-            )
-            context.coordinator.configure(
-                window: nsView.window,
-                usesFullHeightLayout: usesFullHeightLayout
-            )
+            configure(window: nsView.window)
+        }
+    }
+
+    private func configure(window: NSWindow?) {
+        guard let window else { return }
+
+        window.styleMask.insert(.fullSizeContentView)
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.isMovableByWindowBackground = false
+    }
+}
+
+private struct LegacyWindowChromeConfigurator: NSViewRepresentable {
+    @Binding var isSidebarVisible: Bool
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(isSidebarVisible: $isSidebarVisible)
+    }
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView(frame: .zero)
+        DispatchQueue.main.async {
+            context.coordinator.configure(window: view.window)
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async {
+            context.coordinator.update(isSidebarVisible: isSidebarVisible)
+            context.coordinator.configure(window: nsView.window)
         }
     }
 
     @MainActor
-    final class Coordinator: NSObject, NSToolbarDelegate, NSSearchFieldDelegate {
+    final class Coordinator: NSObject, NSToolbarDelegate {
         private static let toolbarIdentifier = NSToolbar.Identifier("Termu.LegacyToolbar")
         private static let sidebarItemIdentifier = NSToolbarItem.Identifier("Termu.ToggleSidebar")
-        private static let searchItemIdentifier = NSToolbarItem.Identifier("Termu.Search")
 
-        @Binding private var searchText: String
         @Binding private var isSidebarVisible: Bool
         private let toolbar = NSToolbar(identifier: toolbarIdentifier)
         private weak var sidebarItem: NSToolbarItem?
-        private weak var searchItem: NSSearchToolbarItem?
 
-        init(searchText: Binding<String>, isSidebarVisible: Binding<Bool>) {
-            _searchText = searchText
+        init(isSidebarVisible: Binding<Bool>) {
             _isSidebarVisible = isSidebarVisible
             super.init()
 
@@ -813,43 +820,33 @@ private struct WindowChromeConfigurator: NSViewRepresentable {
             toolbar.autosavesConfiguration = false
         }
 
-        func configure(window: NSWindow?, usesFullHeightLayout: Bool) {
+        func configure(window: NSWindow?) {
             guard let window else { return }
 
-            if usesFullHeightLayout {
-                window.styleMask.insert(.fullSizeContentView)
-                window.titleVisibility = .hidden
-                window.titlebarAppearsTransparent = true
-            } else {
-                window.styleMask.remove(.fullSizeContentView)
-                window.titleVisibility = .hidden
-                window.titlebarAppearsTransparent = false
-                window.toolbarStyle = .unifiedCompact
-                window.titlebarSeparatorStyle = .automatic
+            window.styleMask.remove(.fullSizeContentView)
+            window.titleVisibility = .hidden
+            window.titlebarAppearsTransparent = false
+            window.toolbarStyle = .unifiedCompact
+            window.titlebarSeparatorStyle = .automatic
 
-                if window.toolbar !== toolbar {
-                    window.toolbar = toolbar
-                }
-                toolbar.isVisible = true
+            if window.toolbar !== toolbar {
+                window.toolbar = toolbar
             }
+            toolbar.isVisible = true
 
             window.isMovableByWindowBackground = false
-            update(searchText: searchText, isSidebarVisible: isSidebarVisible)
+            update(isSidebarVisible: isSidebarVisible)
         }
 
-        func update(searchText: String, isSidebarVisible: Bool) {
+        func update(isSidebarVisible: Bool) {
             let sidebarTitle = isSidebarVisible ? "Hide Sidebar" : "Show Sidebar"
             sidebarItem?.label = sidebarTitle
             sidebarItem?.paletteLabel = sidebarTitle
             sidebarItem?.toolTip = sidebarTitle
-
-            if searchItem?.searchField.stringValue != searchText {
-                searchItem?.searchField.stringValue = searchText
-            }
         }
 
         func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-            [Self.sidebarItemIdentifier, Self.searchItemIdentifier, .flexibleSpace]
+            [Self.sidebarItemIdentifier, .flexibleSpace]
         }
 
         func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
@@ -861,46 +858,19 @@ private struct WindowChromeConfigurator: NSViewRepresentable {
             itemForItemIdentifier itemIdentifier: NSToolbarItem.Identifier,
             willBeInsertedIntoToolbar flag: Bool
         ) -> NSToolbarItem? {
-            switch itemIdentifier {
-            case Self.sidebarItemIdentifier:
-                let item = NSToolbarItem(itemIdentifier: itemIdentifier)
-                item.image = NSImage(systemSymbolName: "sidebar.left", accessibilityDescription: "Toggle Sidebar")
-                item.target = self
-                item.action = #selector(toggleSidebar)
-                item.isNavigational = true
-                item.isBordered = true
-                item.autovalidates = false
-                if flag {
-                    sidebarItem = item
-                }
-                return item
+            guard itemIdentifier == Self.sidebarItemIdentifier else { return nil }
 
-            case Self.searchItemIdentifier:
-                let item = NSSearchToolbarItem(itemIdentifier: itemIdentifier)
-                item.label = "Search"
-                item.paletteLabel = "Search"
-                item.preferredWidthForSearchField = 190
-                item.searchField.placeholderString = "Search"
-                item.searchField.delegate = self
-                item.searchField.sendsSearchStringImmediately = true
-                item.searchField.sendsWholeSearchString = false
-                item.searchField.widthAnchor.constraint(equalToConstant: 190).isActive = true
-                if flag {
-                    searchItem = item
-                }
-                return item
-
-            default:
-                return nil
+            let item = NSToolbarItem(itemIdentifier: itemIdentifier)
+            item.image = NSImage(systemSymbolName: "sidebar.left", accessibilityDescription: "Toggle Sidebar")
+            item.target = self
+            item.action = #selector(toggleSidebar)
+            item.isNavigational = true
+            item.isBordered = true
+            item.autovalidates = false
+            if flag {
+                sidebarItem = item
             }
-        }
-
-        func controlTextDidChange(_ notification: Notification) {
-            guard let searchField = notification.object as? NSSearchField else { return }
-            let value = searchField.stringValue
-            if searchText != value {
-                searchText = value
-            }
+            return item
         }
 
         @objc private func toggleSidebar() {
