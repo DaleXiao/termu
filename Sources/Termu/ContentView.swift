@@ -22,13 +22,14 @@ private enum SidebarLayout {
     static let maxWidth: CGFloat = 420
     static let titlebarHeight: CGFloat = 50
     static let titlebarControlLeading: CGFloat = 78
-    static let titlebarControlTop: CGFloat = -21
+    static let titlebarControlTop: CGFloat = -10
     static let resizeHitWidth: CGFloat = 12
     static let collapsedDetailToolbarInset: CGFloat = 154
 }
 
 private enum WindowChromeCompatibility {
     static let usesFullHeightLayout = ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 27
+    static let titlebarControlCenterY: CGFloat = 25
 }
 
 struct ContentView: View {
@@ -776,6 +777,41 @@ private struct FullHeightWindowChromeConfigurator: NSViewRepresentable {
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.isMovableByWindowBackground = false
+        alignStandardWindowButtons(in: window)
+    }
+
+    private func alignStandardWindowButtons(in window: NSWindow) {
+        let buttonTypes: [NSWindow.ButtonType] = [
+            .closeButton,
+            .miniaturizeButton,
+            .zoomButton,
+        ]
+
+        for buttonType in buttonTypes {
+            guard
+                let button = window.standardWindowButton(buttonType),
+                let superview = button.superview
+            else { continue }
+
+            let centerInWindow = superview.convert(
+                NSPoint(x: button.frame.midX, y: button.frame.midY),
+                to: nil
+            )
+            let centerOnScreen = window.convertPoint(toScreen: centerInWindow)
+            let targetOnScreen = NSPoint(
+                x: centerOnScreen.x,
+                y: window.frame.maxY - WindowChromeCompatibility.titlebarControlCenterY
+            )
+            let targetInWindow = window.convertPoint(fromScreen: targetOnScreen)
+            let targetInSuperview = superview.convert(targetInWindow, from: nil)
+
+            button.setFrameOrigin(
+                NSPoint(
+                    x: button.frame.origin.x,
+                    y: button.frame.origin.y + targetInSuperview.y - button.frame.midY
+                )
+            )
+        }
     }
 }
 
