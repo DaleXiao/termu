@@ -1074,7 +1074,20 @@ final class PTYSession: ObservableObject {
         while index < data.endIndex {
             let byte = data[index]
 
-            if byte == 0x0A || byte == 0x0D {
+            if byte == 0x0D {
+                let nextIndex = data.index(after: index)
+                if nextIndex < data.endIndex, data[nextIndex] == 0x0A {
+                    removedLineBreak = true
+                    pendingBlankLineBytes.removeAll()
+                    index = data.index(after: nextIndex)
+                } else {
+                    controlPrefix.append(byte)
+                    index = nextIndex
+                }
+                continue
+            }
+
+            if byte == 0x0A {
                 removedLineBreak = true
                 pendingBlankLineBytes.removeAll()
                 index = data.index(after: index)

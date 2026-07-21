@@ -46,7 +46,7 @@ final class PTYSessionTerminalTextTests: XCTestCase {
 
         XCTAssertEqual(
             String(decoding: trimmed, as: UTF8.self),
-            "\u{001B}[A\u{001B}[A\u{001B}[0m\u{001B}[Jprompt\r\n❯ "
+            "\r\r\u{001B}[A\u{001B}[A\u{001B}[0m\u{001B}[Jprompt\r\n❯ "
         )
     }
 
