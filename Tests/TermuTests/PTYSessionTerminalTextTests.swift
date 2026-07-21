@@ -40,6 +40,16 @@ final class PTYSessionTerminalTextTests: XCTestCase {
         XCTAssertEqual(PTYSession.trimmingLeadingLineBreaksPreservingTerminalControls(from: data), data)
     }
 
+    func testTrimmingPromptRedrawKeepsControlsAndRemovesOnlyLeadingLineBreak() {
+        let data = Data("\r\r\u{001B}[A\u{001B}[A\u{001B}[0m\u{001B}[J\r\nprompt\r\n❯ ".utf8)
+        let trimmed = PTYSession.trimmingLeadingLineBreaksPreservingTerminalControls(from: data)
+
+        XCTAssertEqual(
+            String(decoding: trimmed, as: UTF8.self),
+            "\u{001B}[A\u{001B}[A\u{001B}[0m\u{001B}[Jprompt\r\n❯ "
+        )
+    }
+
     func testAIActivityMatcherRecognizesKnownCommandNames() {
         XCTAssertTrue(PTYSession.isKnownAIActivityProcess(
             processName: "claude",

@@ -33,6 +33,32 @@ struct HostDetailView: View {
 
 private enum DetailToolbarLayout {
     static let height: CGFloat = 50
+    static let usesOutlinedHostTitle = ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 27
+}
+
+private struct DetailToolbarHostTitle: View {
+    let title: String
+
+    @ViewBuilder
+    var body: some View {
+        if DetailToolbarLayout.usesOutlinedHostTitle {
+            titleText
+                .padding(.horizontal, 10)
+                .frame(height: 28)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .stroke(Color.secondary.opacity(0.28), lineWidth: 1)
+                }
+        } else {
+            titleText
+        }
+    }
+
+    private var titleText: some View {
+        Text(title)
+            .font(.headline)
+            .lineLimit(1)
+    }
 }
 
 private struct SessionView: View {
@@ -46,9 +72,7 @@ private struct SessionView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
-                Text(host.title)
-                    .font(.headline)
-                    .lineLimit(1)
+                DetailToolbarHostTitle(title: host.title)
                     .frame(minWidth: 220, maxWidth: .infinity, alignment: .leading)
 
                 Button {
@@ -241,9 +265,7 @@ private struct LocalTerminalWorkspaceView: View {
 
     private var toolbar: some View {
         HStack(spacing: 10) {
-            Text(host.title)
-                .font(.headline)
-                .lineLimit(1)
+            DetailToolbarHostTitle(title: host.title)
                 .frame(minWidth: 220, maxWidth: .infinity, alignment: .leading)
 
             Button {

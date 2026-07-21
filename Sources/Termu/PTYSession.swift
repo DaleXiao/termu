@@ -159,6 +159,7 @@ final class PTYSession: ObservableObject {
     private var passwordPromptWarningShown = false
     private var pendingFailureMessage: String?
     private var shouldTrimInitialTerminalLineBreaks = false
+    private var shouldAnchorInitialLocalPromptAtTop = false
     private var initialTerminalPrefixBuffer = Data()
     private var terminalSize: TerminalSize?
     private var pendingLaunch: LaunchConfiguration?
@@ -212,6 +213,7 @@ final class PTYSession: ObservableObject {
         passwordPromptWarningShown = false
         pendingFailureMessage = nil
         shouldTrimInitialTerminalLineBreaks = false
+        shouldAnchorInitialLocalPromptAtTop = false
         initialTerminalPrefixBuffer.removeAll()
         pendingLaunch = nil
         supportsAIActivityMonitoring = false
@@ -238,6 +240,7 @@ final class PTYSession: ObservableObject {
         passwordPromptWarningShown = false
         pendingFailureMessage = nil
         shouldTrimInitialTerminalLineBreaks = true
+        shouldAnchorInitialLocalPromptAtTop = host.kind == .local
         initialTerminalPrefixBuffer.removeAll()
         terminalSize = nil
         supportsAIActivityMonitoring = false
@@ -286,6 +289,7 @@ final class PTYSession: ObservableObject {
 
         hasCompleted = true
         pendingLaunch = nil
+        shouldAnchorInitialLocalPromptAtTop = false
 
         if childPID > 0 {
             Darwin.kill(childPID, SIGHUP)
@@ -305,12 +309,14 @@ final class PTYSession: ObservableObject {
 
     func send(_ text: String) {
         guard let data = text.data(using: .utf8) else { return }
+        shouldAnchorInitialLocalPromptAtTop = false
         recordTerminalInput(data)
         writeToPTY(data)
     }
 
     func send(_ bytes: ArraySlice<UInt8>) {
         let data = Data(bytes)
+        shouldAnchorInitialLocalPromptAtTop = false
         recordTerminalInput(data)
         writeToPTY(data)
     }
@@ -460,7 +466,11 @@ final class PTYSession: ObservableObject {
     }
 
     private func trimInitialTerminalLineBreaks(from data: Data) -> Data {
-        guard shouldTrimInitialTerminalLineBreaks else { return data }
+        guard shouldTrimInitialTerminalLineBreaks else {
+            return shouldAnchorInitialLocalPromptAtTop
+                ? Self.trimmingLeadingLineBreaksPreservingTerminalControls(from: data)
+                : data
+        }
 
         initialTerminalPrefixBuffer.append(data)
         let trimmedData = Self.trimmingLeadingLineBreaksPreservingTerminalControls(from: initialTerminalPrefixBuffer)

@@ -498,7 +498,8 @@ struct TerminalTextView: NSViewRepresentable {
             terminalView.optionAsMetaKey = true
             terminalView.allowMouseReporting = true
             terminalView.linkHighlightMode = .hoverWithModifier
-            terminalView.caretViewTracksFocus = true
+            // SwiftTerm's unfocused caret is a short outline that resembles stray terminal output.
+            terminalView.caretViewTracksFocus = false
         }
 
         private func apply(_ theme: TerminalTheme, colorScheme: ColorScheme, to terminalView: TerminalView) {
