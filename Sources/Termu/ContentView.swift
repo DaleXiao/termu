@@ -21,7 +21,8 @@ private enum SidebarLayout {
     static let idealWidth: CGFloat = 320
     static let maxWidth: CGFloat = 420
     static let titlebarHeight: CGFloat = 50
-    static let titlebarControlCenterX: CGFloat = 78
+    static let titlebarControlLeading: CGFloat = 78
+    static let titlebarControlTop: CGFloat = -10
     static let resizeHitWidth: CGFloat = 12
     static let collapsedDetailToolbarInset: CGFloat = 154
 }
@@ -76,11 +77,8 @@ struct ContentView: View {
         .overlay(alignment: .topLeading) {
             if WindowChromeCompatibility.usesFullHeightLayout {
                 sidebarToggleButton
-                    .frame(width: 28, height: 28)
-                    .position(
-                        x: SidebarLayout.titlebarControlCenterX,
-                        y: WindowChromeCompatibility.titlebarControlCenterY
-                    )
+                    .padding(.leading, SidebarLayout.titlebarControlLeading)
+                    .padding(.top, SidebarLayout.titlebarControlTop)
             }
         }
         .onAppear(perform: prepareSelectedHost)
