@@ -756,21 +756,36 @@ private struct SidebarVisualEffectBackground: NSViewRepresentable {
 }
 
 private struct FullHeightWindowChromeConfigurator: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSView {
-        let view = NSView(frame: .zero)
-        DispatchQueue.main.async {
-            configure(window: view.window)
-        }
-        return view
+    func makeNSView(context: Context) -> FullHeightWindowChromeView {
+        FullHeightWindowChromeView(frame: .zero)
     }
 
-    func updateNSView(_ nsView: NSView, context: Context) {
-        DispatchQueue.main.async {
-            configure(window: nsView.window)
-        }
+    func updateNSView(_ nsView: FullHeightWindowChromeView, context: Context) {
+        nsView.configureWindow()
     }
 
-    private func configure(window: NSWindow?) {
+    static func dismantleNSView(_ nsView: FullHeightWindowChromeView, coordinator: Void) {
+        nsView.stopObservingWindow()
+    }
+}
+
+@MainActor
+private final class FullHeightWindowChromeView: NSView {
+    private static let buttonTypes: [NSWindow.ButtonType] = [
+        .closeButton,
+        .miniaturizeButton,
+        .zoomButton,
+    ]
+
+    private var windowUpdateObserver: NSObjectProtocol?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        startObservingWindow()
+        configureWindow()
+    }
+
+    func configureWindow() {
         guard let window else { return }
 
         window.styleMask.insert(.fullSizeContentView)
@@ -780,14 +795,30 @@ private struct FullHeightWindowChromeConfigurator: NSViewRepresentable {
         alignStandardWindowButtons(in: window)
     }
 
-    private func alignStandardWindowButtons(in window: NSWindow) {
-        let buttonTypes: [NSWindow.ButtonType] = [
-            .closeButton,
-            .miniaturizeButton,
-            .zoomButton,
-        ]
+    func stopObservingWindow() {
+        guard let windowUpdateObserver else { return }
+        NotificationCenter.default.removeObserver(windowUpdateObserver)
+        self.windowUpdateObserver = nil
+    }
 
-        for buttonType in buttonTypes {
+    private func startObservingWindow() {
+        stopObservingWindow()
+        guard let window else { return }
+
+        windowUpdateObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didUpdateNotification,
+            object: window,
+            queue: .main
+        ) { [weak self, weak window] _ in
+            guard let window else { return }
+            MainActor.assumeIsolated {
+                self?.alignStandardWindowButtons(in: window)
+            }
+        }
+    }
+
+    private func alignStandardWindowButtons(in window: NSWindow) {
+        for buttonType in Self.buttonTypes {
             guard
                 let button = window.standardWindowButton(buttonType),
                 let superview = button.superview
@@ -804,11 +835,13 @@ private struct FullHeightWindowChromeConfigurator: NSViewRepresentable {
             )
             let targetInWindow = window.convertPoint(fromScreen: targetOnScreen)
             let targetInSuperview = superview.convert(targetInWindow, from: nil)
+            let offset = targetInSuperview.y - button.frame.midY
 
+            guard abs(offset) >= 0.5 else { continue }
             button.setFrameOrigin(
                 NSPoint(
                     x: button.frame.origin.x,
-                    y: button.frame.origin.y + targetInSuperview.y - button.frame.midY
+                    y: button.frame.origin.y + offset
                 )
             )
         }
